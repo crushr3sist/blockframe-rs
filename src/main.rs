@@ -1,28 +1,32 @@
-use std::fs;
-
-use std::io;
-
-fn read_file_to_bytes(path: &str) -> io::Result<Vec<u8>> {
-    return fs::read(path);
-}
-
-fn read_file_to_text(path: &str) -> io::Result<String> {
-    return fs::read_to_string(path);
-}
-
+use blockframe::{
+    merkle_tree::MerkleTree,
+    node::Node,
+    utils::{dummy_data, sha256},
+};
 
 fn main() {
-    let file_path = "unnamed.jpg";
-    
-    match read_file_to_bytes(file_path){
-        Ok(bytes) => println!("Read {} bytes from file.", bytes.len()),
-        Err(e) => eprintln!("Error reading file: {}", e)
-    }
+    let chunks = dummy_data();
 
-    match read_file_to_text("example.txt") {
-        Ok(data) => println!("Read '{}' text from file.", data),
-        Err(e) => eprintln!("Error reading file: {}", e)
-    }
+    let mut tree = MerkleTree::new(chunks.clone());
 
-    println!("Hello, world!");
+    println!("Merkle Tree Root of example.txt: {:?}", tree.get_root());
+
+    // explore the tree 
+    println!("Root Node: {:?}", tree.root);
+    println!("Left child Node: {:?}", tree.root.left);
+    println!("Right child Node: {:?}", tree.root.right);
+    println!();
+    println!("Tree's Leaves: {:?}", tree.leaves);
+
+    // Get proof for chunk 0
+    let proof = tree.get_proof(0, chunks.clone());
+    println!("Proof: {:?}", proof);
+    let is_valid = tree.verify_proof(chunks[0].clone(), 0, proof, tree.get_root());
 }
+
+
+
+
+
+
+

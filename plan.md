@@ -24,17 +24,8 @@ the way we can ensure this, is to:
        for big files, if you're reading huge dataset files, and they're not chunked, in order to use them, they'd be read, whole, into memory which is not what's useful. although, idk how this library would solve that problem. when using a dataset, the whole thing needs to be read into memory. maybe we can speed up the reading process by streaming read.
 
 ## how do we chunk
+this is the order of operations when chunking a file. In the end i have chosen to go with a manifest json file. we will be storing the merkle tree structure in the manifest file. 
 
-this is the order of operation per file chunking
-
-1. we read the file
-2. we generate the file's hash
-3. so we need to divide the file's data into 6 parts
-   1. per part we generate thier hash
-      1. the hash is then written into an optional database. if a database is needed. please dont require a database.
-   2. we append thier start and end headers
-   3. generate thier name
-   4. and write that file into the output directory.
 
 ## how we reconstruct
 

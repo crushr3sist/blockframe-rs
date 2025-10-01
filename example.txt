@@ -1,1 +1,1 @@
-hello from example.txt
+This is a simple line of text to be split into multiple byte chunks for our example.
