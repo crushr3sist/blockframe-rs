@@ -15,7 +15,7 @@ pub fn dummy_data() -> Vec<Vec<u8>> {
         .collect()
 }
 
-pub fn sha256(data: Vec<u8>) -> String {
+pub fn sha256(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
     let result = hasher.finalize();

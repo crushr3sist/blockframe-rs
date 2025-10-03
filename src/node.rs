@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Clone)] // Only Clone is supported
+#[derive(Clone)]
 pub struct Node {
     pub hash_val: String,
     pub left: Option<Box<Node>>,
@@ -9,11 +9,11 @@ pub struct Node {
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
-            .field("hash", &self.hash_val) // assuming you have a hash field
-            // add other fields as needed
+            .field("hash", &self.hash_val)
             .finish()
     }
 }
+
 impl Node {
     pub fn new(hash_val: String) -> Self {
         Node {
@@ -34,3 +34,5 @@ impl Node {
         }
     }
 }
+
+
