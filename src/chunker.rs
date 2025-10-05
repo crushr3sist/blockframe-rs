@@ -5,7 +5,7 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
-use crate::{merkle_tree::MerkleTree, utils::sha256};
+use crate::{manifest::ManifestStructure, merkle_tree::MerkleTree, utils::sha256};
 /**
  * get the bytes
  * before we start chunking, we figure out the files information
@@ -22,15 +22,15 @@ use crate::{merkle_tree::MerkleTree, utils::sha256};
  */
 
 pub struct Chunker {
-    file_name: String,
-    file_data: Vec<u8>,
-    file_size: usize,
-    file_chunks: Vec<Vec<u8>>,
-    file_dir: PathBuf,
-    file_trun_hash: String,
-    file_hash: String,
-    merkle_tree: MerkleTree,
-    committed: bool,
+    pub file_name: String,
+    pub file_data: Vec<u8>,
+    pub file_size: usize,
+    pub file_chunks: Vec<Vec<u8>>,
+    pub file_dir: PathBuf,
+    pub file_trun_hash: String,
+    pub file_hash: String,
+    pub merkle_tree: MerkleTree,
+    pub committed: bool,
 }
 
 impl Chunker {
@@ -87,9 +87,9 @@ impl Chunker {
             }
         }
     }
+
     pub fn should_repair(&self) -> bool {
         /*
-
          * we should add a self healing functionality for the process
          * if its interupted some how, we should be able to use an algorithm to continue the process
          * if during the process we get a dir that already contains chunks
@@ -103,17 +103,55 @@ impl Chunker {
          * we'll have 2 bits of leaves and 2 merkle tree's
          * from there we just need to check, per chunk when sorted,
          * if those proofs match then we filter out those chunks already present and write the new ones
-         * 
+         *
          * - manifest.json missing?        -> YES = repair needed
          * - any chunk file missing?       -> YES = repair needed
          * - merkle tree can't be built?   -> YES = repair needed
          * - All chunks present and valid? -> NO  = no repair needed
          */
-        
-        true
+
+        // go to dir and check to see if there's a manifest.json present
+        let manifest_path = self.file_dir.join("manifest.json");
+
+        // Try to load manifest
+        let manifest = ManifestStructure::from_file(&manifest_path);
+
+        // Validate structure
+        if !manifest.validate() {
+            return true; // Bad structure = repair needed
+        }
+
+        // Read chunks
+        let chunks = match self.read_chunks() {
+            Ok(files) => files,
+            Err(_) => return true, // Can't read chunks = repair needed
+        };
+
+        // Check chunk count
+        if chunks.len() != manifest.merkle_tree.leaves.len() {
+            return true; // Wrong count = repair needed
+        }
+
+        // Verify data matches manifest
+        if !manifest.verify_against_chunks(&chunks) {
+            return true; // Data doesn't match = repair needed
+        }
+
+        false
     }
 
-    pub fn repair(&self) ->bool {
+    pub fn read_chunks(&self) -> Result<Vec<Vec<u8>>, std::io::Error> {
+        let chunk_data: Result<Vec<Vec<u8>>, _> = fs::read_dir(&self.file_dir)?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .map(|path| fs::read(path))
+            .collect();
+
+        return chunk_data;
+    }
+
+    pub fn repair(&self) -> bool {
         /*
          * flow chart:
          * 1. read_existing_chunks() -> Vec<(index, Vec<u8>)>
@@ -129,47 +167,47 @@ impl Chunker {
          * 6. rebuild_merkle_tree() -> use ALL chunks (valid+repaired)
          * 7. update_manifest()
          *        new merkle root + time_stamp
-         * commited = true  
-         * 
-         * 
+         * commited = true
+         *
+         *
          * ------------------------------------
          * Only write:
          *      - Missing chunks (not on disk)
          *      - Corrupt chunks (hash mismatch)
-         *      
+         *
          *  Keep:
          *      - Valid chunks (hash matches)
-         * 
+         *
          * ------------------------------------
          * struct RepairReport {
          *       total_chunks: usize,
          *       valid_chunks: Vec<usize>,      // Indices of good chunks
-         *       corrupt_chunks: Vec<usize>,    // Indices of bad chunks  
+         *       corrupt_chunks: Vec<usize>,    // Indices of bad chunks
          *       missing_chunks: Vec<usize>,    // Indices not on disk
          *       repaired: bool,
          *   }
-         * 
+         *
          * repair_incremental():
          *   1. existing = read_all_chunk_files()
          *   2. valid = []
          *   3. corrupt = []
-         *   
+         *
          *   4. for (index, existing_chunk) in existing:
          *       if sha256(existing_chunk) == sha256(self.file_chunks[index]):
          *           valid.push(index)
          *       else:
          *           corrupt.push(index)
-         *   
+         *
          *   5. missing = [0..self.file_chunks.len()] - existing.keys()
-         *   
+         *
          *   6. to_write = missing + corrupt
-         *   
+         *
          *   7. for index in to_write:
          *       write_chunk_file(index, self.file_chunks[index])
-         *   
+         *
          *   8. rebuild_merkle_tree(all_chunks)
          *   9. write_manifest()
-         * 
+         *
          */
 
         true
@@ -231,7 +269,6 @@ impl Chunker {
         }
     }
 
-    // pub fn read_chunks(&self) {}
     // pub fn verify_all(&self) {}
     pub fn get_hash(&self) -> String {
         sha256(&self.file_data)
