@@ -1,11 +1,33 @@
+//! Merkle tree implementation for data integrity verification.
+//!
+//! This module provides a complete implementation of a binary Merkle tree
+//! that can be used to verify the integrity of data chunks using cryptographic hashes.
+
 use crate::{node::Node, utils::sha256};
-use serde_json;
+use serde_json::{self, json};
 use std::{
-    collections::HashMap,
-    fs::{self, File},
-    io::BufWriter,
+    fs::File,
+    io::{BufWriter, Write},
 };
 
+/// Binary tree for data integrity verification using cryptographic hashes.
+///
+/// A Merkle tree allows efficient and secure verification of large data structures.
+/// Each leaf node represents a data chunk, and each internal node contains the hash
+/// of its children, culminating in a single root hash that represents the entire dataset.
+///
+/// # Examples
+///
+/// ```
+/// use blockframe::merkle_tree::MerkleTree;
+///
+/// let chunks = vec![
+///     b"Hello".to_vec(),
+///     b"World".to_vec(),
+/// ];
+/// let tree = MerkleTree::new(chunks);
+/// println!("Root hash: {}", tree.get_root());
+/// ```
 pub struct MerkleTree {
     pub chunks: Vec<Vec<u8>>,
     pub leaves: Vec<Node>,
@@ -13,6 +35,29 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
+    /// Creates a new Merkle tree from data chunks.
+    ///
+    /// Takes ownership of the chunks and builds a complete binary tree
+    /// where each leaf represents a data chunk and each internal node
+    /// contains the hash of its children. If there's an odd number of chunks,
+    /// the last chunk is duplicated to ensure a complete binary tree.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunks` - Vector of data chunks as byte vectors
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![
+    ///     b"chunk1".to_vec(),
+    ///     b"chunk2".to_vec(),
+    ///     b"chunk3".to_vec(),
+    /// ];
+    /// let tree = MerkleTree::new(chunks);
+    /// ```
     pub fn new(chunks: Vec<Vec<u8>>) -> Self {
         let mut leaves: Vec<Node> = chunks
             .iter()
@@ -24,6 +69,7 @@ impl MerkleTree {
                 leaves.push(last_leaf);
             }
         }
+
         let root = Self::build_tree(&leaves);
 
         MerkleTree {
@@ -33,6 +79,19 @@ impl MerkleTree {
         }
     }
 
+    /// Recursively builds the tree from leaf nodes upward.
+    ///
+    /// Combines adjacent nodes by hashing their values together
+    /// until a single root node remains. This is the core algorithm
+    /// that constructs the binary tree structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `nodes` - Slice of nodes to build the tree from
+    ///
+    /// # Returns
+    ///
+    /// The root [`Node`] of the constructed tree
     pub fn build_tree(nodes: &[Node]) -> Node {
         if nodes.len() == 1 {
             return nodes[0].clone();
@@ -58,6 +117,30 @@ impl MerkleTree {
         return Self::build_tree(&new_level);
     }
 
+    /// Generates inclusion proof for chunk at given index.
+    ///
+    /// Returns the sibling hashes needed to reconstruct the path
+    /// from the specified chunk to the root of the tree. This proof
+    /// can be used to verify that a chunk belongs to the tree without
+    /// needing the entire tree structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunk_index` - Index of the chunk to generate proof for
+    ///
+    /// # Returns
+    ///
+    /// Vector of sibling hashes forming the inclusion proof
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![b"data1".to_vec(), b"data2".to_vec()];
+    /// let tree = MerkleTree::new(chunks);
+    /// let proof = tree.get_proof(0);
+    /// ```
     pub fn get_proof(&self, chunk_index: usize) -> Vec<String> {
         let leaves: Vec<Node> = self
             .chunks
@@ -106,6 +189,38 @@ impl MerkleTree {
         return proof;
     }
 
+    /// Verifies that a chunk belongs to the tree using an inclusion proof.
+    ///
+    /// Reconstructs the path from chunk to root using the provided proof
+    /// and checks if the computed root matches the expected hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunk` - The data chunk to verify
+    /// * `chunk_index` - Index position of the chunk in the original data
+    /// * `proof` - Sibling hashes forming the inclusion proof
+    /// * `root_hash` - Expected root hash of the tree
+    ///
+    /// # Returns
+    ///
+    /// `true` if the chunk is valid and belongs to the tree, `false` otherwise
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![b"data1".to_vec(), b"data2".to_vec()];
+    /// let tree = MerkleTree::new(chunks);
+    /// let proof = tree.get_proof(0);
+    /// let is_valid = tree.verify_proof(
+    ///     b"data1",
+    ///     0,
+    ///     &proof,
+    ///     tree.get_root().to_string()
+    /// );
+    /// assert!(is_valid);
+    /// ```
     pub fn verify_proof(
         &self,
         chunk: &[u8],
@@ -132,23 +247,100 @@ impl MerkleTree {
         return current_hash == root_hash;
     }
 
+    /// Returns the root hash of the tree.
+    ///
+    /// The root hash uniquely represents the entire dataset and can be used
+    /// to verify the integrity of all chunks in the tree.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![b"data".to_vec()];
+    /// let tree = MerkleTree::new(chunks);
+    /// println!("Root: {}", tree.get_root());
+    /// ```
     pub fn get_root(&self) -> &str {
         return &self.root.hash_val;
     }
 
+    /// Returns reference to all leaf nodes.
+    ///
+    /// Each leaf node represents a data chunk with its computed hash.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![b"data1".to_vec(), b"data2".to_vec()];
+    /// let tree = MerkleTree::new(chunks);
+    /// let leaves = tree.get_leaves();
+    /// println!("Number of leaves: {}", leaves.len());
+    /// ```
     pub fn get_leaves(&self) -> &Vec<Node> {
         return &self.leaves;
     }
 
+    /// Exports tree structure to manifest.json file.
+    ///
+    /// Serializes the complete tree structure including root hash
+    /// and all leaf hashes to a JSON manifest file in the current directory.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the file cannot be created or written to.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![b"data".to_vec()];
+    /// let tree = MerkleTree::new(chunks);
+    /// tree.write_to_file(); // Creates manifest.json
+    /// ```
     pub fn write_to_file(&self) {
-        let mut hashmap: HashMap<usize, &str> = HashMap::new();
-        for (index, hash) in self.leaves.iter().enumerate() {
-            hashmap.insert(index, &hash.hash_val);
-        }
         let file = File::create("manifest.json").expect("Failed to create file");
-        let writer = BufWriter::new(file);
-        serde_json::to_writer(writer, &hashmap).expect("Failed to write to file");
+        let mut writer = BufWriter::new(file);
+        writer.write_all(&self.get_json()).expect("msg");
+        writer.flush().expect("");
     }
-    
 
+    /// Serializes tree to JSON bytes for export.
+    ///
+    /// Returns the tree structure as JSON bytes containing
+    /// the root hash and indexed leaf nodes. The format includes
+    /// a `merkle_tree` object with `root` and `leaves` fields.
+    ///
+    /// # Returns
+    ///
+    /// JSON representation as UTF-8 encoded bytes
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use blockframe::merkle_tree::MerkleTree;
+    ///
+    /// let chunks = vec![b"data".to_vec()];
+    /// let tree = MerkleTree::new(chunks);
+    /// let json_bytes = tree.get_json();
+    /// let json_str = String::from_utf8(json_bytes).unwrap();
+    /// ```
+    pub fn get_json(&self) -> Vec<u8> {
+        let mut leaves_object = serde_json::Map::new();
+        for (index, hash) in self.leaves.iter().enumerate() {
+            leaves_object.insert(index.to_string(), json!(&hash.hash_val));
+        }
+        let merkle_tree_object = json!({
+            "merkle_tree":{
+                "root": self.get_root(),
+                "leaves": leaves_object
+
+            }
+        });
+
+        merkle_tree_object.to_string().into_bytes()
+    }
 }

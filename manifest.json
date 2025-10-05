@@ -1,8 +1,13 @@
 {
-    "0": "dd186ee379f23f993a095a8bfc423b9da61205d23d708c26e8c89b17c1ca7e07",
-    "1": "ba105cbb261fb20e9ab16313853a96d53f88b878ddc0cf8fd8a5098eedac3b25",
-    "2": "1e770ab41af7ac2ff91fa99f0587a48000490b19dee6f329ccff06e680093467",
-    "3": "b84c28a00bf50e6d0be664873430f6d2ad65d7f2512553ada9ef98840a950036",
-    "5": "da14295aafed0ffe143bbf52defd1eafb53955de55d30a74380f3cfc2222ff6c",
-    "4": "79ecf9dd682844018df345a2152d0d8ff3b6836790f0b915ba1d16f3aef6eae0"
+    "merkle_tree": {
+        "leaves": {
+            "0": "dd186ee379f23f993a095a8bfc423b9da61205d23d708c26e8c89b17c1ca7e07",
+            "1": "ba105cbb261fb20e9ab16313853a96d53f88b878ddc0cf8fd8a5098eedac3b25",
+            "2": "1e770ab41af7ac2ff91fa99f0587a48000490b19dee6f329ccff06e680093467",
+            "3": "b84c28a00bf50e6d0be664873430f6d2ad65d7f2512553ada9ef98840a950036",
+            "4": "79ecf9dd682844018df345a2152d0d8ff3b6836790f0b915ba1d16f3aef6eae0",
+            "5": "da14295aafed0ffe143bbf52defd1eafb53955de55d30a74380f3cfc2222ff6c"
+        },
+        "root": "6f7e0690c8b2ab3bc532e6ebbfa2d0bf1dfcfc986019258bebd6118097c88220"
+    }
 }

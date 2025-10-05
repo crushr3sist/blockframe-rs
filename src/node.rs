@@ -1,11 +1,13 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Node {
     pub hash_val: String,
     pub left: Option<Box<Node>>,
     pub right: Option<Box<Node>>,
 }
+
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
@@ -34,5 +36,3 @@ impl Node {
         }
     }
 }
-
-
