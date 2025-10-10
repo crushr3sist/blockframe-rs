@@ -4,7 +4,7 @@
 //! that can be used to verify the integrity of data chunks using cryptographic hashes.
 
 use crate::{node::Node, utils::sha256};
-use serde_json::{self, json};
+use serde_json::{self, Value, json};
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -283,30 +283,30 @@ impl MerkleTree {
         return &self.leaves;
     }
 
-    /// Exports tree structure to manifest.json file.
-    ///
-    /// Serializes the complete tree structure including root hash
-    /// and all leaf hashes to a JSON manifest file in the current directory.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the file cannot be created or written to.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use blockframe::merkle_tree::MerkleTree;
-    ///
-    /// let chunks = vec![b"data".to_vec()];
-    /// let tree = MerkleTree::new(chunks);
-    /// tree.write_to_file(); // Creates manifest.json
-    /// ```
-    pub fn write_to_file(&self) {
-        let file = File::create("manifest.json").expect("Failed to create file");
-        let mut writer = BufWriter::new(file);
-        writer.write_all(&self.get_json()).expect("msg");
-        writer.flush().expect("");
-    }
+    // /// Exports tree structure to manifest.json file.
+    // ///
+    // /// Serializes the complete tree structure including root hash
+    // /// and all leaf hashes to a JSON manifest file in the current directory.
+    // ///
+    // /// # Panics
+    // ///
+    // /// Panics if the file cannot be created or written to.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```no_run
+    // /// use blockframe::merkle_tree::MerkleTree;
+    // ///
+    // /// let chunks = vec![b"data".to_vec()];
+    // /// let tree = MerkleTree::new(chunks);
+    // /// tree.write_to_file(); // Creates manifest.json
+    // /// ```
+    // pub fn write_to_file(&self) {
+    //     let file = File::create("manifest.json").expect("Failed to create file");
+    //     let mut writer = BufWriter::new(file);
+    //     writer.write_all(&self.get_json()).expect("msg");
+    //     writer.flush().expect("");
+    // }
 
     /// Serializes tree to JSON bytes for export.
     ///
@@ -328,19 +328,16 @@ impl MerkleTree {
     /// let json_bytes = tree.get_json();
     /// let json_str = String::from_utf8(json_bytes).unwrap();
     /// ```
-    pub fn get_json(&self) -> Vec<u8> {
+    pub fn get_json(&self) -> Value {
         let mut leaves_object = serde_json::Map::new();
         for (index, hash) in self.leaves.iter().enumerate() {
             leaves_object.insert(index.to_string(), json!(&hash.hash_val));
         }
         let merkle_tree_object = json!({
-            "merkle_tree":{
                 "root": self.get_root(),
                 "leaves": leaves_object
-
-            }
         });
 
-        merkle_tree_object.to_string().into_bytes()
+        return merkle_tree_object;
     }
 }

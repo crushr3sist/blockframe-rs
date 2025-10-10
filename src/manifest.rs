@@ -14,13 +14,15 @@ pub struct ManifestStructure {
 }
 
 impl ManifestStructure {
-    pub fn from_file(path: &Path) -> ManifestStructure {
-        let content = fs::read_to_string(path).expect("failed to read manifest");
+    pub fn from_file(path: &Path) -> Option<ManifestStructure> {
+
+        let content = fs::read_to_string(path).ok()?;
         // this line populates our struct and attached merkle tree to the read data from the manifest.json
-        return serde_json::from_str(&content).expect("failed to parse manifest json");
+        return serde_json::from_str(&content).ok()
     }
 
     pub fn validate(&self) -> bool {
+
         // check root hash is 64 hex characters for sha256
         if !Self::is_valid_hash(&self.merkle_tree.root) {
             return false;
@@ -58,9 +60,11 @@ impl ManifestStructure {
     fn is_valid_hash(hash: &str) -> bool {
         hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())
     }
+
     /// verify manifest against actual chunk data
     /// returns true if everything matches, false if corrupted
     pub fn verify_against_chunks(&self, chunks: &[Vec<u8>]) -> bool {
+
         // 1. Check we have the right number of chunks
         if chunks.len() != self.merkle_tree.leaves.len() {
             return false;

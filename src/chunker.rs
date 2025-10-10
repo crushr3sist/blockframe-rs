@@ -1,8 +1,11 @@
+use chrono::{DateTime, Utc};
 use std::{
-    fs,
+    fs::{self, File},
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
+use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::{manifest::ManifestStructure, merkle_tree::MerkleTree, utils::sha256};
@@ -69,19 +72,23 @@ impl Chunker {
 
     pub fn commit_all(&mut self) -> Result<(), String> {
         if self.committed {
+            println!("file was already commited");
             return Ok(());
         }
         if self.create_dir() {
+            println!("file is being commited");
             self.write_chunks();
             self.write_manifest();
             self.committed = true;
-
             Ok(())
         } else {
+            println!("there was an error, repair logic initating");
             if !self.should_repair() {
+                println!("there was no need to repair, it was a false positive");
                 self.committed = true;
                 Ok(())
             } else {
+                println!("there was an error, repairing asset");
                 self.repair();
                 Ok(())
             }
@@ -114,41 +121,59 @@ impl Chunker {
         let manifest_path = self.file_dir.join("manifest.json");
 
         // Try to load manifest
-        let manifest = ManifestStructure::from_file(&manifest_path);
+        let manifest = match ManifestStructure::from_file(&manifest_path) {
+            Some(m) => m,
+            None => {
+                println!("should_repair: couldn't find the manifest");
+                return true;
+            }
+        };
 
         // Validate structure
         if !manifest.validate() {
+            println!("should_repair: failed to verify the manifest");
             return true; // Bad structure = repair needed
         }
 
         // Read chunks
-        let chunks = match self.read_chunks() {
-            Ok(files) => files,
-            Err(_) => return true, // Can't read chunks = repair needed
+        let chunks = match dbg!(self.read_chunks()) {
+            Some(chunks) => chunks,
+            None => {
+                println!("should_repair: couldnt read the chunks");
+                return true;
+            }
         };
 
         // Check chunk count
         if chunks.len() != manifest.merkle_tree.leaves.len() {
+            println!("should_repair: chunk count is mismatched");
             return true; // Wrong count = repair needed
         }
 
         // Verify data matches manifest
         if !manifest.verify_against_chunks(&chunks) {
+            println!("should_repair: data is mismatching");
             return true; // Data doesn't match = repair needed
         }
 
         false
     }
 
-    pub fn read_chunks(&self) -> Result<Vec<Vec<u8>>, std::io::Error> {
-        let chunk_data: Result<Vec<Vec<u8>>, _> = fs::read_dir(&self.file_dir)?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file())
-            .map(|path| fs::read(path))
-            .collect();
-
-        return chunk_data;
+    pub fn read_chunks(&self) -> Option<Vec<Vec<u8>>> {
+        fs::read_dir(&self.file_dir).ok().map(|read_dir| {
+            read_dir
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| path.is_file())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name != "manifest.json")
+                        .unwrap_or(false)
+                })
+                .filter_map(|path| fs::read(path).ok())
+                .collect()
+        })
     }
 
     pub fn repair(&self) -> bool {
@@ -214,13 +239,44 @@ impl Chunker {
     }
 
     pub fn write_manifest(&self) {
-        // so we need to now, go to that file dir
-        // use our chunk array to create our merkle tree
-        // when our merkle tree is created
-        // we will use the json to write our manifest
-        // along with injecting the file's original hash
-        // and the time of its creation
-        // and the file name and the original number of bytes it had
+        /*
+        * so we need to now, go to that file dir
+        * use our chunk array to create our merkle tree
+        * when our merkle tree is created
+        * we will use the json to write our manifest
+        * along with injecting the file's original hash
+        * and the time of its creation
+        * and the file name and the original number of bytes it had
+        {
+            original_hash: ""
+            name: ""
+            size: ...
+            time_of_creation: ...
+
+            merkle_tree:{
+                "root": ...
+                "leaves": [...]
+            }
+
+        }
+        */
+        let mk_tree = &self.merkle_tree.get_json();
+        let now: DateTime<Utc> = Utc::now();
+        let manifest = json!({
+            "original_hash": &self.file_hash,
+            "name": &self.file_name,
+            "size": &self.file_size,
+            "time_of_creation":  now.to_string(),
+            "merkle_tree": mk_tree
+        })
+        .to_string()
+        .into_bytes();
+
+        let manifest_path = self.file_dir.join("manifest.json");
+        let file = File::create(manifest_path).expect("Failed to create manifest file");
+        let mut writer = BufWriter::new(file);
+        writer.write_all(&manifest).expect("msg");
+        writer.flush().expect("msg");
     }
 
     pub fn get_dir(file_name: &String, file_hash: &String) -> std::path::PathBuf {
