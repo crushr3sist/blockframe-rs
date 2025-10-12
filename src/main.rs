@@ -9,7 +9,7 @@ fn main() {
     let file_bytes = fs::read(&file_name).expect("msg");
 
     let mut chunker = Chunker::new(file_name, file_bytes);
-    let res = match chunker.commit_all() {
+    let _ = match chunker.commit_all() {
         Ok(k) => println!("Successfully commited: {:?}", k),
         Err(e) => println!("error occured while commiting: {:?}", e),
     };

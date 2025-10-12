@@ -6,7 +6,6 @@ use std::{
 };
 
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 use crate::{manifest::ManifestStructure, merkle_tree::MerkleTree, utils::sha256};
 /**
@@ -136,7 +135,7 @@ impl Chunker {
         }
 
         // Read chunks
-        let chunks = match dbg!(self.read_chunks()) {
+        let chunks = match self.read_chunks() {
             Some(chunks) => chunks,
             None => {
                 println!("should_repair: couldnt read the chunks");
@@ -178,75 +177,141 @@ impl Chunker {
 
     pub fn repair(&self) -> bool {
         /*
-         * flow chart:
-         * 1. read_existing_chunks() -> Vec<(index, Vec<u8>)>
-         * 2. build_merkle_from_existing() -> MerkelTree
-         * 3. verify_each_chunk() -> valid_indices, corrupt_indices
-         *      - for each existing chunk
-         *        1. hash matches?  - YES -> mark as Valid
-         *        2. hash mis-match - NO  -> mark as Corrupt
-         * 4. find_missing_chunks() -> [0..n] filter valid_indices
-         * 5. write_missing_and_corrupt()
-         *    for index in (missing + corrupt):
-         *        write_chunk(index)
-         * 6. rebuild_merkle_tree() -> use ALL chunks (valid+repaired)
-         * 7. update_manifest()
-         *        new merkle root + time_stamp
-         * commited = true
-         *
-         *
-         * ------------------------------------
-         * Only write:
-         *      - Missing chunks (not on disk)
-         *      - Corrupt chunks (hash mismatch)
-         *
-         *  Keep:
-         *      - Valid chunks (hash matches)
-         *
-         * ------------------------------------
-         * struct RepairReport {
-         *       total_chunks: usize,
-         *       valid_chunks: Vec<usize>,      // Indices of good chunks
-         *       corrupt_chunks: Vec<usize>,    // Indices of bad chunks
-         *       missing_chunks: Vec<usize>,    // Indices not on disk
-         *       repaired: bool,
-         *   }
-         *
-         * repair_incremental():
-         *   1. existing = read_all_chunk_files()
-         *   2. valid = []
-         *   3. corrupt = []
-         *
-         *   4. for (index, existing_chunk) in existing:
-         *       if sha256(existing_chunk) == sha256(self.file_chunks[index]):
-         *           valid.push(index)
-         *       else:
-         *           corrupt.push(index)
-         *
-         *   5. missing = [0..self.file_chunks.len()] - existing.keys()
-         *
-         *   6. to_write = missing + corrupt
-         *
-         *   7. for index in to_write:
-         *       write_chunk_file(index, self.file_chunks[index])
-         *
-         *   8. rebuild_merkle_tree(all_chunks)
-         *   9. write_manifest()
-         *
-         */
+
+            if chunks are missing, re-commit the missing chunk
+            if a chunk is corrupted, re-commit the corrupt chunk
+            if the manifest is missing, re-write the manifest
+            so we have the original file, this depends on the original file
+            clear and simple
+            we need 2 merkle trees.
+            one merkle tree constructed from the physical archive
+        */
+        // physical read chunks where we suspect an issue
+        let physical_chunks = match self.read_chunks() {
+            Some(chunks) => chunks,
+            None => {
+                println!("Failed to read physical chunks");
+                return false;
+            }
+        };
+
+        // the incoming file chunks, used for the repair
+        // we already have a merkle tree for the in memory chunks
+        // this is what the session picked up
+        // if this file is already commited, and we've ended up here
+        // we need to repair the commited file archive.
+
+        // okay so we have a merkle tree for the in memory chunks
+        // we need another merkle tree for the read chunks
+        let physical_mk = MerkleTree::new(physical_chunks);
+        let memory_mk = &self.merkle_tree;
+        let mut corrupt: Vec<usize> = Vec::new();
+
+        // we have 2 merkle trees, and 2 sets of chunks
+        // now we need to iterate through what physical chunks we have.
+        // so before we get into the merkle tree proof, its better to just check in order
+        // if all chunks are there or not
+
+        // to do this, we need to read all of the files that arent the manifest.json
+        // get the list of thier names
+        // filter out the file name and the underscore and file type suffix
+        // and we'll have a list of indices.
+        // get the file name and seperate them based on the .
+
+        /*"example_0.txt"
+            ↓ split("_")
+        ["example", "0.txt"]
+            ↓ get(1)
+        "0.txt"
+            ↓ split('.')
+        ["0", "txt"]
+            ↓ next()
+        "0"
+            ↓ parse::<usize>()
+        0 ✅ */
+
+        let mut indices: Vec<usize> = fs::read_dir(&self.file_dir)
+            .ok()
+            .map(|read_dir| {
+                read_dir
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .filter_map(|path| {
+                        path.file_name().and_then(|name| name.to_str()).and_then(
+                            |file_name: &str| -> Option<usize> {
+                                let parts: Vec<&str> = file_name.split("_").collect();
+                                parts
+                                    .get(1)?
+                                    .split(".")
+                                    .next()? // gets "0" from "0.txt"
+                                    .parse::<usize>()
+                                    .ok()
+                            },
+                        )
+                    })
+                    .collect::<Vec<usize>>()
+            })
+            .unwrap_or_default();
+        indices.sort();
+
+        dbg!(&indices);
+
+        // we have the indices that are present
+        // we need to just make a vector of 0 to 6
+        // and filter out those values that arent in both expected and indices
+        let missing: Vec<usize> = (0..6).filter(|val| !indices.contains(val)).collect();
+        dbg!(&missing);
+        // now that we've understood whats missing and whats not
+        // its time to recommit those chunks that are missing
+        // now we have a list of chunk indexes that are missing
+        // we just need to get our in-memory chunk and admit that
+        if !missing.is_empty() {
+            for index in missing {
+                match self.write_chunk(index) {
+                    Ok(()) => println!("chunk index {} written successfully", index),
+                    Err(e) => println!("writting chunk at index caused error: {}", e),
+                };
+            }
+        }
+        // now we call should_repair to check if our problem has been solved, otherwise we keep moving
+        if !self.should_repair() {
+            return true;
+        }
+
+        // if that didnt solve our issue, then we need now fix our corrupted chunks.
+        // we have 2 merkle trees now and we have our chunks in order as well
+        // we need to go through the range of all of our chunks which should be just 6
+        // through that, we index our memory and physical chunks
+        // we get thier proofs, and see if the physical and memory chunks are the same
+        // if they're not, we remove that chunk from the archive, and rewrite it.
+
+        for idx in 0..6 {
+            // loop through out chunk space
+            let memory_proof = &self.merkle_tree.get_proof(idx); // get the valid proof
+            let physical_proof = physical_mk.get_proof(idx); // get the proof for test
+            if physical_mk.verify_proof(
+                // verify the test chunks themselfs
+                &physical_mk.chunks[idx],
+                idx,
+                &physical_proof,
+                physical_mk.get_root().to_string(),
+            ) && *memory_proof == physical_proof
+            // and check if the proofs for both valid and test chunks match up
+            {
+                // true condition to pass
+                println!("chunk {} verified as valid", idx);
+            }
+            else {
+                // otherwise, we need to take that index, and rewrite that chunk
+                
+            }
+        }
 
         true
     }
 
     pub fn write_manifest(&self) {
         /*
-        * so we need to now, go to that file dir
-        * use our chunk array to create our merkle tree
-        * when our merkle tree is created
-        * we will use the json to write our manifest
-        * along with injecting the file's original hash
-        * and the time of its creation
-        * and the file name and the original number of bytes it had
         {
             original_hash: ""
             name: ""
@@ -304,25 +369,50 @@ impl Chunker {
     }
 
     pub fn write_chunks(&self) {
-        // get the file name and seperate them based on the .
-        let file_parts: Vec<&str> = self.file_name.split(".").collect();
-        // get the last element of the split array
-        let file_ext = file_parts.last().unwrap_or(&"");
-        // get the first element of the split array
-        let _file_name = file_parts.first().unwrap_or(&"");
-        // enumerate over the chunks
         for (index, chunk) in self.file_chunks.iter().enumerate() {
             // create a chunk path based on the enumerated chunk index
-            let path = format!(
-                "{}/{}_{}.{}",
-                self.file_dir.to_str().unwrap_or(""),
-                _file_name,
-                index,
-                file_ext
-            );
+            let path = self
+                .chunk_filename_from_index(index)
+                .expect("Failed to get chunk filename");
             // write that chunk with the formatted path
             fs::write(path, chunk).expect("msg");
         }
+    }
+
+    pub fn write_chunk(&self, index: usize) -> Result<(), std::io::Error> {
+        // validate index bounds
+
+        let chunk_path = self.chunk_filename_from_index(index)?;
+
+        fs::write(chunk_path, &self.file_chunks[index])?;
+        Ok(())
+    }
+
+    pub fn chunk_filename_from_index(&self, index: usize) -> Result<PathBuf, std::io::Error> {
+        if index >= self.file_chunks.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Chunk index {} out of bounds", index),
+            ));
+        }
+        // use path for better file name handling
+        let file_path = Path::new(&self.file_name);
+        let file_stem = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+        let file_ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+
+        // build chunk path using PathBuf
+
+        let chunk_filename = if file_ext.is_empty() {
+            format!("{}_{}", file_stem, index)
+        } else {
+            format!("{}_{}.{}", file_stem, index, file_ext)
+        };
+        let chunk_path = self.file_dir.join(chunk_filename);
+
+        return Ok(chunk_path);
     }
 
     // pub fn verify_all(&self) {}

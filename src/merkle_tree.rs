@@ -5,10 +5,6 @@
 
 use crate::{node::Node, utils::sha256};
 use serde_json::{self, Value, json};
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-};
 
 /// Binary tree for data integrity verification using cryptographic hashes.
 ///

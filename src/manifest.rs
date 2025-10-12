@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::format, fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use crate::{merkle_tree::MerkleTree, utils::sha256};
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,14 +15,12 @@ pub struct ManifestStructure {
 
 impl ManifestStructure {
     pub fn from_file(path: &Path) -> Option<ManifestStructure> {
-
         let content = fs::read_to_string(path).ok()?;
         // this line populates our struct and attached merkle tree to the read data from the manifest.json
-        return serde_json::from_str(&content).ok()
+        return serde_json::from_str(&content).ok();
     }
 
     pub fn validate(&self) -> bool {
-
         // check root hash is 64 hex characters for sha256
         if !Self::is_valid_hash(&self.merkle_tree.root) {
             return false;
@@ -39,6 +37,7 @@ impl ManifestStructure {
                 return false;
             }
         }
+        
         // check if the indices are 0, 1, 2, 3... (no gaps)
         let mut indices: Vec<usize> = self
             .merkle_tree
@@ -64,7 +63,6 @@ impl ManifestStructure {
     /// verify manifest against actual chunk data
     /// returns true if everything matches, false if corrupted
     pub fn verify_against_chunks(&self, chunks: &[Vec<u8>]) -> bool {
-
         // 1. Check we have the right number of chunks
         if chunks.len() != self.merkle_tree.leaves.len() {
             return false;
