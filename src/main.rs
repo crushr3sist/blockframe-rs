@@ -1,16 +1,16 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use blockframe::chunker::Chunker;
 
 fn main() {
     // get our file_name
-    let file_name = "example.txt".to_string();
-    // get our bytes
-    let file_bytes = fs::read(&file_name).expect("msg");
+    let file_path = Path::new("big_file.txt");
 
-    let mut chunker = Chunker::new(file_name, file_bytes);
-    let _ = match chunker.commit_all() {
-        Ok(k) => println!("Successfully commited: {:?}", k),
-        Err(e) => println!("error occured while commiting: {:?}", e),
-    };
+    let mut chunker = Chunker::new(file_path);
+
+    // if chunker.repair() {
+    //     println!("repair successful!");
+    // } else {
+    //     println!("Repair failed - too many corrupted chunks");
+    // }
 }

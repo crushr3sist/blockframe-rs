@@ -2,4 +2,6 @@
 
 *.txt
 *.json
-
+*.dat
+archive_directory
+positive_affirmation.md

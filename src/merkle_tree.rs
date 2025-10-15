@@ -74,6 +74,15 @@ impl MerkleTree {
             root,
         }
     }
+    pub fn from_hashes(hashes: Vec<String>) -> Self {
+        let leaves: Vec<Node> = hashes.into_iter().map(|hash| Node::new(hash)).collect();
+        let root = Self::build_tree(&leaves);
+        MerkleTree {
+            chunks: vec![],
+            leaves,
+            root,
+        }
+    }
 
     /// Recursively builds the tree from leaf nodes upward.
     ///
