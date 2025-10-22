@@ -1,6 +1,6 @@
+pub mod chunker;
+pub mod filestore;
+pub mod manifest;
+pub mod merkle_tree;
 pub mod node;
 pub mod utils;
-pub mod merkle_tree;
-pub mod chunker;
-pub mod fetcher;
-pub mod manifest;

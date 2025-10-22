@@ -1,6 +1,7 @@
 use super::Chunker;
 
 use crate::manifest::ManifestStructure;
+
 impl Chunker {
 pub fn should_repair(&self) -> bool {
         // go to dir and check to see if there's a manifest.json present

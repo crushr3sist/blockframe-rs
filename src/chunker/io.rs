@@ -29,13 +29,14 @@ impl Chunker {
             })
     }
 
-    pub fn check_for_archive_dir() {
+    pub fn check_for_archive_dir(&self) {
         if !Path::new("archive_directory").is_dir() {
-            Self::create_dir(Path::new("archive_directory"));
+            &self.create_dir(Path::new("archive_directory"));
         }
     }
 
     pub fn write_segment_chunks(
+        &self,
         segment_index: usize,
         file_name: &String,
         file_hash: &String,
@@ -44,22 +45,22 @@ impl Chunker {
     ) {
         // so we need to write the segments now.
         // lets get our archive directory
-        let archive_dir = Self::get_dir(file_name, file_hash).join("segments");
+        let archive_dir = &self.get_dir(file_name, file_hash).join("segments");
         let segment_dir = archive_dir.join(format!("segment_{}", segment_index));
-        Self::create_dir(&segment_dir);
+        self.create_dir(&segment_dir);
         // we're already looping through our segments
         // so we need to create a dir with the segment index
         // once we have that, we need to now create a chunks dir and a parity dir
         let chunks_dir = segment_dir.join("chunks");
         let parity_dir = segment_dir.join("parity");
-        Self::create_dir(&chunks_dir);
-        Self::create_dir(&parity_dir);
+        self.create_dir(&chunks_dir);
+        self.create_dir(&parity_dir);
         // now inside of those dirs, we need to call write chunks and write_parity.
-        Self::write_chunks(&chunks_dir, chunks).expect("msg");
-        Self::write_parity_chunks(&parity_dir, parity).expect("msg");
+        self.write_chunks(&chunks_dir, chunks).expect("msg");
+        self.write_parity_chunks(&parity_dir, parity).expect("msg");
     }
 
-    pub fn write_chunks(chunks_dir: &Path, chunks: &[Vec<u8>]) -> Result<(), String> {
+    pub fn write_chunks(&self, chunks_dir: &Path, chunks: &[Vec<u8>]) -> Result<(), String> {
         for (index, chunk) in chunks.iter().enumerate() {
             let chunk_filename = format!("chunk_{}.dat", index);
             let chunk_path = chunks_dir.join(chunk_filename);
@@ -70,7 +71,7 @@ impl Chunker {
         Ok(())
     }
 
-    fn write_parity_chunks(parity_dir: &Path, parity: &[Vec<u8>]) -> Result<(), String> {
+    fn write_parity_chunks(&self, parity_dir: &Path, parity: &[Vec<u8>]) -> Result<(), String> {
         for (index, chunk) in parity.iter().enumerate() {
             // parity files: example_p0.dat, example_p1.dat, example_p2.dat
             let parity_filename = format!("parity_{}.dat", index);
@@ -83,13 +84,13 @@ impl Chunker {
         Ok(())
     }
 
-    pub fn get_dir(file_name: &String, file_hash: &String) -> std::path::PathBuf {
+    pub fn get_dir(&self, file_name: &String, file_hash: &String) -> std::path::PathBuf {
         let path = format!("archive_directory/{}_{}", file_name, file_hash);
         let dir = Path::new(&path);
         return dir.to_path_buf();
     }
 
-    pub fn create_dir(file_dir: &Path) -> bool {
+    pub fn create_dir(&self, file_dir: &Path) -> bool {
         if !file_dir.is_dir() {
             fs::create_dir_all(file_dir).unwrap_or_else(|_| {
                 panic!("there was an error creating dir: {:?}", &file_dir.to_str())
@@ -101,6 +102,7 @@ impl Chunker {
     }
 
     pub fn write_manifest(
+        &self,
         merkle_tree: &MerkleTree,
         file_hash: &String,
         file_name: &String,

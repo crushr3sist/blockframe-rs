@@ -9,9 +9,6 @@ use std::path::PathBuf;
 
 use crate::merkle_tree::MerkleTree;
 
-CONST 
-CONST 
-
 pub struct Chunker {
     pub file_name: Option<String>,
     pub file_size: Option<usize>,
@@ -22,20 +19,25 @@ pub struct Chunker {
     pub committed: Option<bool>,
     pub segment_size: Option<usize>,
     pub num_segments: Option<usize>,
-    pub data_shards: Option<usize>,
-    pub parity_shards: Option<usize>,
+    pub data_shards: usize,
+    pub parity_shards: usize,
 }
-
+pub struct ChunkedFile {
+    pub file_name: String,
+    pub file_size: usize,
+    pub file_dir: PathBuf,
+    pub file_trun_hash: String,
+    pub file_hash: String,
+    pub merkle_tree: MerkleTree,
+    pub segment_size: usize,
+    pub num_segments: usize,
+    pub data_shards: usize,
+    pub parity_shards: usize,
+}
 impl Chunker {
-    pub fn file_name(&self) -> {}
-    pub fn file_size(&self) -> {}
-    pub fn segment_size(&self) -> {}
-    pub fn num_segments(&self) -> {}
-    pub fn file_dir(&self) -> {}
-    pub fn file_trun_hash(&self) -> {}
-    pub fn file_hash(&self) -> {}
-    pub fn merkle_tree(&self) -> {}
     pub fn new() -> Result<Self, String> {
+        const DATA_SHARDS: usize = 6;
+        const PARITY_SHARDS: usize = 3;
         Ok(Chunker {
             file_name: None,
             file_size: None,
@@ -46,12 +48,10 @@ impl Chunker {
             file_hash: None,
             merkle_tree: None,
             committed: Some(false),
-            data_shards: Some(6),
-            parity_shards: Some(3),
+            data_shards: DATA_SHARDS,
+            parity_shards: PARITY_SHARDS,
         })
     }
-
-    
 }
 
 mod commit;

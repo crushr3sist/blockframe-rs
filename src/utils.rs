@@ -28,7 +28,6 @@ pub fn sha256(data: &[u8]) -> String {
 }
 pub fn determine_segment_size(file_size: u64) -> usize {
     const MIN_SEGMENT: usize = 512 * 1024; // 512KB
-    const MAX_SEGMENT: usize = 64 * 1024 * 1024; // 64MB
     // for small files just read the entire file as one segment
     if file_size < MIN_SEGMENT as u64 {
         return file_size as usize;

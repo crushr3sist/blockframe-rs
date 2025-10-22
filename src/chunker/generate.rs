@@ -2,7 +2,7 @@ use super::Chunker;
 
 use reed_solomon_erasure::galois_8::ReedSolomon;
 impl Chunker {
-    pub fn get_chunks(file_data: &[u8]) -> Vec<Vec<u8>> {
+    pub fn get_chunks(&self, file_data: &[u8]) -> Vec<Vec<u8>> {
         let total_len = file_data.len();
         let chunk_size = (total_len + 5) / 6; // Round up to ensure we don't create more than 6 chunks
 
@@ -23,7 +23,8 @@ impl Chunker {
         chunks
     }
 
-    fn generate_parity(
+    pub fn generate_parity(
+        &self,
         data_chunks: &[Vec<u8>],
         data_shards: usize,
         parity_shards: usize,
