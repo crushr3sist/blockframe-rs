@@ -1,9 +1,10 @@
-use super::Chunker;
+use crate::merkle_tree;
 
-use crate::manifest::ManifestStructure;
+use super::Chunker;
+use merkle_tree::manifest::ManifestStructure;
 
 impl Chunker {
-pub fn should_repair(&self) -> bool {
+    pub fn should_repair(&self) -> bool {
         // go to dir and check to see if there's a manifest.json present
         let manifest_path = self
             .file_dir

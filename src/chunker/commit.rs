@@ -1,9 +1,9 @@
 use std::{fs::File, io::Read, path::Path};
 
 use super::Chunker;
+use crate::merkle_tree::MerkleTree;
 use crate::{
     chunker::ChunkedFile,
-    merkle_tree::MerkleTree,
     utils::{determine_segment_size, hash_file_streaming},
 };
 

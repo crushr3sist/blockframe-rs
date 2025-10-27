@@ -31,7 +31,7 @@ impl Chunker {
 
     pub fn check_for_archive_dir(&self) {
         if !Path::new("archive_directory").is_dir() {
-            &self.create_dir(Path::new("archive_directory"));
+            self.create_dir(Path::new("archive_directory"));
         }
     }
 

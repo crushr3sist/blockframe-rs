@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path};
 
 use crate::{merkle_tree::MerkleTree, utils::sha256};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MerkleTreeManifest {
     pub leaves: HashMap<String, String>,
@@ -37,7 +38,7 @@ impl ManifestStructure {
                 return false;
             }
         }
-        
+
         // check if the indices are 0, 1, 2, 3... (no gaps)
         let mut indices: Vec<usize> = self
             .merkle_tree
@@ -56,7 +57,7 @@ impl ManifestStructure {
         return true;
     }
 
-    fn is_valid_hash(hash: &str) -> bool {
+    pub fn is_valid_hash(hash: &str) -> bool {
         hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())
     }
 

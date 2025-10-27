@@ -3,7 +3,7 @@
 //! This module provides a complete implementation of a binary Merkle tree
 //! that can be used to verify the integrity of data chunks using cryptographic hashes.
 
-use crate::{node::Node, utils::sha256};
+use crate::{merkle_tree::node::Node, utils::sha256};
 use serde_json::{self, Value, json};
 
 /// Binary tree for data integrity verification using cryptographic hashes.
@@ -346,3 +346,5 @@ impl MerkleTree {
         return merkle_tree_object;
     }
 }
+pub mod manifest;
+pub mod node;
