@@ -1,4 +1,4 @@
-use sha2::{Digest, Sha256};
+use blake3::Hasher;
 use std::{
     fs::{self, File},
     io,
@@ -21,11 +21,12 @@ pub fn dummy_data() -> Vec<Vec<u8>> {
 }
 
 pub fn sha256(data: &[u8]) -> String {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(data);
     let result = hasher.finalize();
-    return format!("{:x}", result);
+    return result.to_string();
 }
+
 pub fn determine_segment_size(file_size: u64) -> usize {
     const MIN_SEGMENT: usize = 512 * 1024; // 512KB
     // for small files just read the entire file as one segment
@@ -52,7 +53,7 @@ fn detect_available_memory() -> u64 {
 
 pub fn hash_file_streaming(file_path: &Path) -> Result<String, std::io::Error> {
     let mut file = File::open(file_path).expect("");
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     io::copy(&mut file, &mut hasher).expect("");
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hasher.finalize().to_string())
 }

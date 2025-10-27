@@ -7,16 +7,33 @@ use crate::{
     utils::{determine_segment_size, hash_file_streaming},
 };
 
+use memmap2::Mmap;
+
+const MMAP_THRESHOLD: u64 = 10 * 1024 * 1024;
+
 impl Chunker {
     pub fn commit(&self, file_path: &Path) -> Result<ChunkedFile, String> {
         // 1. Get file metadata (doesnt load file)
         let mut file = File::open(file_path).expect("couldnt read the file");
         let file_size = file.metadata().expect("no metadata available").len() as usize;
+        let use_mmap = file_size as u64 > MMAP_THRESHOLD;
         let file_name = file_path
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("")
             .to_string();
+
+        let mmap: Option<Mmap>;
+        let file_data: &[u8];
+
+        if use_mmap {
+            // we can use mmap is our file is larger than 100mb, which is going to be quite often.
+            mmap = Some(unsafe { Mmap::map(&file).map_err(|e| format!("mmap failed: {}", e))? });
+            file_data = mmap.as_ref().unwrap();
+        } else {
+            mmap = None;
+            file_data = &[];
+        }
 
         // 2. determine segment size
         let segment_size = determine_segment_size(file_size as u64);
@@ -37,9 +54,19 @@ impl Chunker {
         let mut buffer = vec![0u8; segment_size];
 
         for segment_index in 0..num_segments {
-            // read one segment
-            let bytes_read = file.read(&mut buffer).expect("failed to read segment");
-            let segment_data = &buffer[..bytes_read];
+            let segment_data: &[u8];
+            if use_mmap {
+                // calculate slice boundaries
+                let start = segment_index * segment_size;
+                let end = ((segment_index + 1) * segment_size).min(file_data.len());
+
+                // just slice the mmap no copying required
+                segment_data = &file_data[start..end];
+            } else {
+                // read one segment
+                let bytes_read = file.read(&mut buffer).expect("failed to read segment");
+                segment_data = &buffer[..bytes_read];
+            }
 
             // process with existing functions
             let chunks = self.get_chunks(segment_data);

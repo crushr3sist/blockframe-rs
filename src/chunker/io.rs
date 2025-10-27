@@ -1,8 +1,9 @@
 use super::Chunker;
 use chrono::{DateTime, Utc};
+use std::fs::{File, OpenOptions};
+use std::io::{BufWriter, Write};
 use std::{
-    fs::{self, File},
-    io::{BufWriter, Write},
+    fs::{self},
     path::Path,
 };
 
@@ -64,8 +65,15 @@ impl Chunker {
         for (index, chunk) in chunks.iter().enumerate() {
             let chunk_filename = format!("chunk_{}.dat", index);
             let chunk_path = chunks_dir.join(chunk_filename);
-            fs::write(&chunk_path, chunk)
-                .map_err(|e| format!("failed to write chunk: {}: {}", index, e))?;
+            let file = File::create(&chunk_path)
+                .map_err(|e| format!("failed to create chunk {}: {}", index, e))?;
+
+            let mut writer = BufWriter::new(file);
+
+            writer
+                .write_all(chunk)
+                .map_err(|e| format!("failed to write chunk {}: {}", index, e))?;
+
             println!("Write data chunk {} ({} bytes)", index, chunk.len());
         }
         Ok(())
@@ -73,14 +81,19 @@ impl Chunker {
 
     fn write_parity_chunks(&self, parity_dir: &Path, parity: &[Vec<u8>]) -> Result<(), String> {
         for (index, chunk) in parity.iter().enumerate() {
-            // parity files: example_p0.dat, example_p1.dat, example_p2.dat
             let parity_filename = format!("parity_{}.dat", index);
             let parity_path = parity_dir.join(parity_filename);
-            fs::write(&parity_path, chunk)
-                .map_err(|e| format!("failed to write parity chunk {}: {}", index, e))?;
+
+            let file = File::create(&parity_path)
+                .map_err(|e| format!("failed to create parity {}: {}", index, e))?;
+
+            let mut writer = BufWriter::new(file);
+            writer
+                .write_all(chunk)
+                .map_err(|e| format!("failed to write parity {}: {}", index, e))?;
+
             println!("wrote parity chunk {} ({} bytes)", index, chunk.len());
         }
-
         Ok(())
     }
 
