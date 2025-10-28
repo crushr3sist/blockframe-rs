@@ -11,6 +11,28 @@ use serde_json::json;
 
 use crate::merkle_tree::MerkleTree;
 impl Chunker {
+    /// Reads all stored chunk files from the chunker's working directory while
+    /// ignoring the manifest.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_read_chunks_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// std::fs::write(sandbox.join("chunk_0.dat"), b"data")?;
+    /// let mut chunker = Chunker::new().unwrap();
+    /// chunker.file_dir = Some(sandbox.clone());
+    /// let chunks = chunker.read_chunks()?;
+    /// assert_eq!(chunks.len(), 1);
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn read_chunks(&self) -> Result<Vec<Vec<u8>>, std::io::Error> {
         let read_dir = fs::read_dir(&self.file_dir.as_ref().ok_or(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -30,12 +52,60 @@ impl Chunker {
         Ok(chunks)
     }
 
+    /// Ensures the `archive_directory` exists relative to the current working
+    /// directory, creating it if necessary.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_check_archive_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let original = std::env::current_dir()?;
+    /// std::env::set_current_dir(&sandbox)?;
+    /// let chunker = Chunker::new().unwrap();
+    /// chunker.check_for_archive_dir()?;
+    /// assert!(std::path::Path::new("archive_directory").exists());
+    /// std::env::set_current_dir(original)?;
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn check_for_archive_dir(&self) -> Result<(), std::io::Error> {
         Ok(if !Path::new("archive_directory").is_dir() {
             self.create_dir(Path::new("archive_directory"))?;
         })
     }
 
+    /// Writes both data and parity shards for a particular segment into the
+    /// archive directory structure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_write_segment_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let original = std::env::current_dir()?;
+    /// std::env::set_current_dir(&sandbox)?;
+    /// let chunker = Chunker::new().unwrap();
+    /// let chunks = vec![b"chunk".to_vec(); 6];
+    /// let parity = vec![b"parity".to_vec(); 3];
+    /// chunker.write_segment_chunks(0, &"file.txt".to_string(), &"hash".to_string(), &chunks, &parity)?;
+    /// assert!(std::path::Path::new("archive_directory/file.txt_hash/segments/segment_0/chunks").exists());
+    /// std::env::set_current_dir(original)?;
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn write_segment_chunks(
         &self,
         segment_index: usize,
@@ -62,6 +132,25 @@ impl Chunker {
         Ok(())
     }
 
+    /// Writes the supplied chunk buffers to disk within `chunks_dir`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let chunker = Chunker::new().unwrap();
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_write_chunks_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// chunker.write_chunks(&sandbox, &[b"chunk".to_vec()])?;
+    /// assert!(sandbox.join("chunk_0.dat").exists());
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn write_chunks(
         &self,
         chunks_dir: &Path,
@@ -81,6 +170,34 @@ impl Chunker {
         Ok(())
     }
 
+    /// Writes parity buffers to disk within `parity_dir`.
+    ///
+    /// The helper is normally called by [`write_segment_chunks`](Self::write_segment_chunks);
+    /// the example demonstrates its effect by invoking the public method and
+    /// checking that parity files are created.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_write_parity_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let original = std::env::current_dir()?;
+    /// std::env::set_current_dir(&sandbox)?;
+    /// let chunker = Chunker::new().unwrap();
+    /// let chunks = vec![b"chunk".to_vec(); 6];
+    /// let parity = vec![b"parity".to_vec(); 3];
+    /// chunker.write_segment_chunks(0, &"file.txt".to_string(), &"hash".to_string(), &chunks, &parity)?;
+    /// assert!(std::path::Path::new("archive_directory/file.txt_hash/segments/segment_0/parity/parity_0.dat").exists());
+    /// std::env::set_current_dir(original)?;
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     fn write_parity_chunks(
         &self,
         parity_dir: &Path,
@@ -98,6 +215,20 @@ impl Chunker {
         Ok(())
     }
 
+    /// Calculates the archive directory where a committed file's segments and
+    /// manifest will live.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let chunker = Chunker::new().unwrap();
+    /// let dir = chunker.get_dir(&"example.txt".to_string(), &"hash".to_string())?;
+    /// assert!(dir.ends_with("example.txt_hash"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn get_dir(
         &self,
         file_name: &String,
@@ -108,6 +239,24 @@ impl Chunker {
         Ok(dir.to_path_buf())
     }
 
+    /// Creates a directory and returns whether the directory was newly created.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let chunker = Chunker::new().unwrap();
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_create_dir_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// assert!(chunker.create_dir(&sandbox)?);
+    /// assert!(!chunker.create_dir(&sandbox)?);
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn create_dir(&self, file_dir: &Path) -> Result<bool, std::io::Error> {
         if !file_dir.is_dir() {
             fs::create_dir_all(file_dir)?;
@@ -117,6 +266,28 @@ impl Chunker {
         }
     }
 
+    /// Writes the manifest metadata for a committed file, including the Merkle
+    /// tree description, to `file_dir`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let chunker = Chunker::new().unwrap();
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_write_manifest_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let tree = MerkleTree::new(vec![b"chunk".to_vec(), b"more".to_vec()])?;
+    /// chunker.write_manifest(&tree, &"hash".to_string(), &"file.txt".to_string(), 8, 6, 3, &sandbox)?;
+    /// assert!(sandbox.join("manifest.json").exists());
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn write_manifest(
         &self,
         merkle_tree: &MerkleTree,
