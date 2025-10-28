@@ -9,6 +9,16 @@ pub struct Node {
 }
 
 impl fmt::Debug for Node {
+    /// Formats the node by exposing its hash value, which is often the only
+    /// information required when inspecting Merkle trees during debugging.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::node::Node;
+    /// let node = Node::new("abc123".to_string());
+    /// assert!(format!("{:?}", node).contains("abc123"));
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
             .field("hash", &self.hash_val)
@@ -17,6 +27,17 @@ impl fmt::Debug for Node {
 }
 
 impl Node {
+    /// Creates a leaf node that stores only a hash value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::node::Node;
+    /// let node = Node::new("deadbeef".to_string());
+    /// assert_eq!(node.hash_val, "deadbeef");
+    /// assert!(node.left.is_none());
+    /// assert!(node.right.is_none());
+    /// ```
     pub fn new(hash_val: String) -> Self {
         Node {
             hash_val,
@@ -24,6 +45,20 @@ impl Node {
             right: None,
         }
     }
+    /// Creates an internal node with the supplied hash and optional child
+    /// pointers, allowing callers to wire custom Merkle tree shapes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::node::Node;
+    /// let left = Node::new("left".into());
+    /// let right = Node::new("right".into());
+    /// let parent = Node::with_children("parent".into(), Some(Box::new(left)), Some(Box::new(right)));
+    /// assert_eq!(parent.hash_val, "parent");
+    /// assert!(parent.left.is_some());
+    /// assert!(parent.right.is_some());
+    /// ```
     pub fn with_children(
         hash_val: String,
         left: Option<Box<Node>>,

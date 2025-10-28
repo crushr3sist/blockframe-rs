@@ -12,6 +12,30 @@ use memmap2::Mmap;
 const MMAP_THRESHOLD: u64 = 10 * 1024 * 1024;
 
 impl Chunker {
+    /// Commits a file by chunking it, generating parity data, and building the
+    /// associated Merkle tree and manifest on disk.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_commit_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// std::fs::write(sandbox.join("sample.txt"), b"commit me")?;
+    /// let original = std::env::current_dir()?;
+    /// std::env::set_current_dir(&sandbox)?;
+    /// let chunker = Chunker::new().unwrap();
+    /// let committed = chunker.commit(std::path::Path::new("sample.txt"))?;
+    /// assert_eq!(committed.file_name, "sample.txt");
+    /// std::env::set_current_dir(original)?;
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn commit(&self, file_path: &Path) -> Result<ChunkedFile, std::io::Error> {
         // 1. Get file metadata (doesnt load file)
         let mut file = File::open(file_path)?;

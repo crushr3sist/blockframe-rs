@@ -24,6 +24,20 @@ struct SystemInfo {
     disk_available_gb: f64,
 }
 
+/// Collects a snapshot of the host machine's CPU, memory, and disk
+/// characteristics using the [`sysinfo`] crate.
+///
+/// # Examples
+///
+/// ```
+/// # use super::get_system_info;
+/// # fn main() -> Result<(), std::io::Error> {
+/// let info = get_system_info();
+/// assert!(info.cpu_cores >= 1);
+/// assert!(info.total_memory_gb.is_finite());
+/// # Ok(())
+/// # }
+/// ```
 fn get_system_info() -> SystemInfo {
     let mut sys = System::new_all();
     sys.refresh_all();
@@ -55,6 +69,32 @@ fn get_system_info() -> SystemInfo {
     }
 }
 
+/// Deletes the `archive_directory` folder if it exists so each benchmark run
+/// starts with a clean slate.
+///
+/// # Examples
+///
+/// ```
+/// # use super::clear_archive_directory;
+/// # use std::io::Write;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let sandbox = std::env::temp_dir().join(format!("blockframe_clear_archive_{}", std::process::id()));
+/// if sandbox.exists() {
+///     std::fs::remove_dir_all(&sandbox)?;
+/// }
+/// std::fs::create_dir_all(&sandbox)?;
+/// let original = std::env::current_dir()?;
+/// std::env::set_current_dir(&sandbox)?;
+/// std::fs::create_dir_all("archive_directory")?;
+/// std::fs::write("archive_directory/placeholder", b"data")?;
+/// assert!(std::path::Path::new("archive_directory").exists());
+/// clear_archive_directory()?;
+/// assert!(!std::path::Path::new("archive_directory").exists());
+/// std::env::set_current_dir(&original)?;
+/// std::fs::remove_dir_all(&sandbox)?;
+/// # Ok(())
+/// # }
+/// ```
 fn clear_archive_directory() -> std::io::Result<()> {
     let archive_path = Path::new("archive_directory");
     if archive_path.exists() {
@@ -63,6 +103,36 @@ fn clear_archive_directory() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Commits the example files with an optional simulated memory constraint and
+/// captures the throughput of the operation.
+///
+/// The function removes any previous archive data, times the commit process for
+/// both `example.txt` and `big_file.txt`, and returns a [`BenchmarkResult`]
+/// containing the measured duration and throughput in MB/s.
+///
+/// # Examples
+///
+/// ```
+/// # use super::run_single_benchmark;
+/// # use std::io::Write;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let sandbox = std::env::temp_dir().join(format!("blockframe_run_single_{}", std::process::id()));
+/// if sandbox.exists() {
+///     std::fs::remove_dir_all(&sandbox)?;
+/// }
+/// std::fs::create_dir_all(&sandbox)?;
+/// let original = std::env::current_dir()?;
+/// std::env::set_current_dir(&sandbox)?;
+/// std::fs::write("example.txt", b"blockframe example")?;
+/// std::fs::write("big_file.txt", b"blockframe big file")?;
+/// let result = run_single_benchmark(1, None);
+/// assert_eq!(result.run_number, 1);
+/// assert!(result.duration.as_secs_f64() >= 0.0);
+/// std::env::set_current_dir(&original)?;
+/// std::fs::remove_dir_all(&sandbox)?;
+/// # Ok(())
+/// # }
+/// ```
 fn run_single_benchmark(run_number: usize, memory_constraint_gb: Option<usize>) -> BenchmarkResult {
     // Clear archive directory before each run
     clear_archive_directory().expect("Failed to clear archive directory");
@@ -99,6 +169,30 @@ fn run_single_benchmark(run_number: usize, memory_constraint_gb: Option<usize>) 
     }
 }
 
+/// Computes summary statistics for a collection of [`BenchmarkResult`] values.
+///
+/// The returned tuple contains the mean duration, the standard deviation of the
+/// durations, the minimum and maximum duration, and the mean throughput.
+///
+/// # Examples
+///
+/// ```
+/// # use std::time::Duration;
+/// # use super::{calculate_statistics, BenchmarkResult};
+/// # fn main() -> Result<(), std::io::Error> {
+/// let results = vec![
+///     BenchmarkResult { run_number: 1, duration: Duration::from_secs_f64(1.2), throughput_mbs: 10.0, memory_constraint_gb: None },
+///     BenchmarkResult { run_number: 2, duration: Duration::from_secs_f64(0.8), throughput_mbs: 12.0, memory_constraint_gb: None },
+/// ];
+/// let (mean, stddev, min, max, throughput) = calculate_statistics(&results);
+/// assert!((mean - 1.0).abs() < 1e-6);
+/// assert!(stddev >= 0.0);
+/// assert_eq!(min, 0.8);
+/// assert_eq!(max, 1.2);
+/// assert!((throughput - 11.0).abs() < 1e-6);
+/// # Ok(())
+/// # }
+/// ```
 fn calculate_statistics(results: &[BenchmarkResult]) -> (f64, f64, f64, f64, f64) {
     let durations: Vec<f64> = results.iter().map(|r| r.duration.as_secs_f64()).collect();
     let throughputs: Vec<f64> = results.iter().map(|r| r.throughput_mbs).collect();
@@ -125,6 +219,20 @@ fn calculate_statistics(results: &[BenchmarkResult]) -> (f64, f64, f64, f64, f64
     )
 }
 
+/// Estimates how long, in hours, it would take to process one terabyte at the
+/// provided throughput.
+///
+/// # Examples
+///
+/// ```
+/// # use super::estimate_terabyte_time;
+/// # fn main() -> Result<(), std::io::Error> {
+/// let (hours, human_readable) = estimate_terabyte_time(5120.0);
+/// assert!(hours > 0.0);
+/// assert!(human_readable.contains('h'));
+/// # Ok(())
+/// # }
+/// ```
 fn estimate_terabyte_time(throughput_mbs: f64) -> (f64, String) {
     let one_tb_mb = 1024.0 * 1024.0; // 1TB in MB
     let seconds = one_tb_mb / throughput_mbs;
@@ -136,6 +244,32 @@ fn estimate_terabyte_time(throughput_mbs: f64) -> (f64, String) {
     (hours, format!("{}h {}m {}s", h, m, s))
 }
 
+/// Runs the interactive benchmarking routine, printing system information and
+/// throughput summaries for each simulated memory constraint.
+///
+/// # Examples
+///
+/// ```
+/// # use super::{get_system_info, run_single_benchmark};
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let sandbox = std::env::temp_dir().join(format!("blockframe_benchmark_main_{}", std::process::id()));
+/// if sandbox.exists() {
+///     std::fs::remove_dir_all(&sandbox)?;
+/// }
+/// std::fs::create_dir_all(&sandbox)?;
+/// let original = std::env::current_dir()?;
+/// std::env::set_current_dir(&sandbox)?;
+/// std::fs::write("example.txt", b"example data")?;
+/// std::fs::write("big_file.txt", b"big data")?;
+/// let info = get_system_info();
+/// assert!(info.cpu_cores >= 1);
+/// let sample = run_single_benchmark(1, Some(4));
+/// assert_eq!(sample.run_number, 1);
+/// std::env::set_current_dir(original)?;
+/// std::fs::remove_dir_all(sandbox)?;
+/// # Ok(())
+/// # }
+/// ```
 fn main() {
     println!("═══════════════════════════════════════════════════════════════════════════════");
     println!("                    BLOCKFRAME-RS PERFORMANCE BENCHMARK");

@@ -8,6 +8,17 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
+    /// Constructs a [`MerkleTree`] by hashing the provided chunks and pairing
+    /// them up until a single root node remains.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let tree = MerkleTree::new(vec![b"block".to_vec(), b"frame".to_vec()]).unwrap();
+    /// assert_eq!(tree.leaves.len(), 2);
+    /// assert!(!tree.get_root().unwrap().is_empty());
+    /// ```
     pub fn new(chunks: Vec<Vec<u8>>) -> Result<Self, std::io::Error> {
         let mut leaves: Vec<Node> = chunks
             .iter()
@@ -31,6 +42,16 @@ impl MerkleTree {
             root,
         })
     }
+    /// Reconstructs a [`MerkleTree`] from precomputed leaf hashes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let hashes = vec!["a".repeat(64), "b".repeat(64)];
+    /// let tree = MerkleTree::from_hashes(hashes).unwrap();
+    /// assert_eq!(tree.leaves.len(), 2);
+    /// ```
     pub fn from_hashes(hashes: Vec<String>) -> Result<Self, std::io::Error> {
         let leaves: Vec<Node> = hashes.into_iter().map(|hash| Node::new(hash)).collect();
         let root = Self::build_tree(&leaves)?;
@@ -41,6 +62,17 @@ impl MerkleTree {
         })
     }
 
+    /// Recursively combines nodes two at a time until only the root remains.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::node::Node;
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let nodes = vec![Node::new("a".repeat(64)), Node::new("b".repeat(64))];
+    /// let root = MerkleTree::build_tree(&nodes).unwrap();
+    /// assert!(!root.hash_val.is_empty());
+    /// ```
     pub fn build_tree(nodes: &[Node]) -> Result<Node, std::io::Error> {
         if nodes.len() == 1 {
             return Ok(nodes[0].clone());
@@ -66,6 +98,16 @@ impl MerkleTree {
         return Self::build_tree(&new_level);
     }
 
+    /// Produces a Merkle proof for the chunk at the supplied index.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let tree = MerkleTree::new(vec![b"left".to_vec(), b"right".to_vec()]).unwrap();
+    /// let proof = tree.get_proof(0).unwrap();
+    /// assert!(!proof.is_empty());
+    /// ```
     pub fn get_proof(&self, chunk_index: usize) -> Result<Vec<String>, std::io::Error> {
         let leaves: Vec<Node> = self
             .chunks
@@ -117,6 +159,19 @@ impl MerkleTree {
         return Ok(proof);
     }
 
+    /// Verifies that a chunk belongs to the Merkle tree given a proof and a
+    /// root hash.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let data = vec![b"left".to_vec(), b"right".to_vec()];
+    /// let tree = MerkleTree::new(data.clone()).unwrap();
+    /// let proof = tree.get_proof(1).unwrap();
+    /// let root = tree.get_root().unwrap().to_string();
+    /// assert!(tree.verify_proof(&data[1], 1, &proof, root).unwrap());
+    /// ```
     pub fn verify_proof(
         &self,
         chunk: &[u8],
@@ -143,14 +198,43 @@ impl MerkleTree {
         return Ok(current_hash == root_hash);
     }
 
+    /// Returns the root hash of the Merkle tree as a string slice.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let tree = MerkleTree::new(vec![b"a".to_vec(), b"b".to_vec()]).unwrap();
+    /// assert!(!tree.get_root().unwrap().is_empty());
+    /// ```
     pub fn get_root(&self) -> Result<&str, std::io::Error> {
         return Ok(&self.root.hash_val);
     }
 
+    /// Returns a reference to the vector of leaf nodes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let tree = MerkleTree::new(vec![b"a".to_vec(), b"b".to_vec()]).unwrap();
+    /// assert_eq!(tree.get_leaves().unwrap().len(), 2);
+    /// ```
     pub fn get_leaves(&self) -> Result<&Vec<Node>, std::io::Error> {
         return Ok(&self.leaves);
     }
 
+    /// Serialises the Merkle tree into a JSON object containing the root hash and
+    /// each leaf's hash keyed by index.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::merkle_tree::MerkleTree;
+    /// let tree = MerkleTree::new(vec![b"a".to_vec(), b"b".to_vec()]).unwrap();
+    /// let json = tree.get_json().unwrap();
+    /// assert_eq!(json["root"], tree.get_root().unwrap());
+    /// ```
     pub fn get_json(&self) -> Result<Value, std::io::Error> {
         let mut leaves_object = serde_json::Map::new();
         for (index, hash) in self.leaves.iter().enumerate() {

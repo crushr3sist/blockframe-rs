@@ -2,6 +2,22 @@ use super::Chunker;
 
 use reed_solomon_erasure::galois_8::ReedSolomon;
 impl Chunker {
+    /// Splits raw bytes into six roughly even chunks, padding with empty
+    /// vectors when necessary so callers can proceed directly to parity
+    /// generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let chunker = Chunker::new().unwrap();
+    /// let chunks = chunker.get_chunks(b"blockframe test data")?;
+    /// assert_eq!(chunks.len(), 6);
+    /// assert!(chunks.iter().any(|chunk| !chunk.is_empty()));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn get_chunks(&self, file_data: &[u8]) -> Result<Vec<Vec<u8>>, std::io::Error> {
         let total_len = file_data.len();
         let chunk_size = (total_len + 5) / 6; // Round up to ensure we don't create more than 6 chunks
@@ -23,6 +39,21 @@ impl Chunker {
         Ok(chunks)
     }
 
+    /// Produces parity shards using Reed-Solomon coding so that up to
+    /// `parity_shards` chunks can be reconstructed during recovery.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// # fn main() -> Result<(), std::io::Error> {
+    /// let chunker = Chunker::new().unwrap();
+    /// let chunks = chunker.get_chunks(b"blockframe resiliency")?;
+    /// let parity = chunker.generate_parity(&chunks, 6, 3)?;
+    /// assert_eq!(parity.len(), 3);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn generate_parity(
         &self,
         data_chunks: &[Vec<u8>],

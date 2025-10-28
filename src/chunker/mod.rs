@@ -35,6 +35,17 @@ pub struct ChunkedFile {
     pub parity_shards: usize,
 }
 impl Chunker {
+    /// Creates a new [`Chunker`] instance with default shard counts suitable for
+    /// Reed-Solomon encoding.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::chunker::Chunker;
+    /// let chunker = Chunker::new().unwrap();
+    /// assert_eq!(chunker.data_shards, 6);
+    /// assert_eq!(chunker.parity_shards, 3);
+    /// ```
     pub fn new() -> Result<Self, String> {
         const DATA_SHARDS: usize = 6;
         const PARITY_SHARDS: usize = 3;

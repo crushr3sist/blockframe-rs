@@ -2,18 +2,67 @@ use std::collections::HashMap;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
 
+/// Lightweight wrapper around an archive directory that exposes helper
+/// functions for introspecting manifests on disk.
 pub struct FileStore {
     pub store_path: PathBuf,
 }
 
 impl FileStore {
-    /// Create a new FileStore at the given path
+    /// Creates a new [`FileStore`] rooted at `store_path`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::filestore::FileStore;
+    /// # use std::path::Path;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_filestore_new_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let store = FileStore::new(&sandbox)?;
+    /// assert_eq!(store.store_path, sandbox);
+    /// std::fs::remove_dir_all(store.store_path.clone())?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(store_path: &Path) -> Result<Self, std::io::Error> {
         Ok(FileStore {
             store_path: store_path.to_path_buf(),
         })
     }
 
+    /// Returns a vector of hash maps describing each archived file's manifest
+    /// metadata.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::filestore::FileStore;
+    /// # use std::path::Path;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_filestore_hashmap_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let original = std::env::current_dir()?;
+    /// std::env::set_current_dir(&sandbox)?;
+    /// let archive = Path::new("archive_directory");
+    /// std::fs::create_dir_all(archive)?;
+    /// let file_dir = archive.join("example_deadbeef");
+    /// std::fs::create_dir_all(&file_dir)?;
+    /// std::fs::write(file_dir.join("manifest.json"), b"{}")?;
+    /// let store = FileStore::new(archive)?;
+    /// let manifests = store.as_hashmap()?;
+    /// assert!(!manifests.is_empty());
+    /// std::env::set_current_dir(original)?;
+    /// std::fs::remove_dir_all(sandbox)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn as_hashmap(
         &self,
     ) -> Result<Vec<HashMap<String, HashMap<String, String>>>, std::io::Error> {
@@ -62,6 +111,25 @@ impl FileStore {
         return Ok(file_hashmap);
     }
 
+    /// Placeholder for returning strongly typed manifest models. Invoking the
+    /// function currently performs no work.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use blockframe::filestore::FileStore;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let sandbox = std::env::temp_dir().join(format!("blockframe_filestore_get_all_{}", std::process::id()));
+    /// if sandbox.exists() {
+    ///     std::fs::remove_dir_all(&sandbox)?;
+    /// }
+    /// std::fs::create_dir_all(&sandbox)?;
+    /// let store = FileStore::new(&sandbox)?;
+    /// store.get_all();
+    /// std::fs::remove_dir_all(store.store_path.clone())?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn get_all(&self) {
         // this is where we fill in our structs and return a vector of our models
     }
