@@ -4,52 +4,52 @@ use super::Chunker;
 use merkle_tree::manifest::ManifestStructure;
 
 impl Chunker {
-    pub fn should_repair(&self) -> bool {
-        // go to dir and check to see if there's a manifest.json present
-        let manifest_path = self
-            .file_dir
-            .as_ref()
-            .expect("file_dir not set")
-            .join("manifest.json");
+    // pub fn should_repair(&self) -> Result<bool, std::io::Error> {
+    //     // go to dir and check to see if there's a manifest.json present
+    //     let manifest_path = self
+    //         .file_dir
+    //         .as_ref()
+    //         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "file_dir is None"))?
+    //         .join("manifest.json");
 
-        // Try to load manifest
-        let manifest = match ManifestStructure::from_file(&manifest_path) {
-            Some(m) => m,
-            None => {
-                println!("should_repair: couldn't find the manifest");
-                return true;
-            }
-        };
+    //     // Try to load manifest
+    //     let manifest = match ManifestStructure::from_file(&manifest_path) {
+    //         Some(m) => m,
+    //         None => {
+    //             println!("should_repair: couldn't find the manifest");
+    //             return Ok(true);
+    //         }
+    //     };
 
-        // Validate structure
-        if !manifest.validate() {
-            println!("should_repair: failed to verify the manifest");
-            return true; // Bad structure = repair needed
-        }
+    //     // Validate structure
+    //     if !manifest.validate()? {
+    //         println!("should_repair: failed to verify the manifest");
+    //         return Ok(true); // Bad structure = repair needed
+    //     }
 
-        // Read chunks
-        let chunks = match self.read_chunks() {
-            Some(chunks) => chunks,
-            None => {
-                println!("should_repair: couldnt read the chunks");
-                return true;
-            }
-        };
+    //     // Read chunks
+    //     let chunks = match self.read_chunks() {
+    //         Some(chunks) => chunks,
+    //         None => {
+    //             println!("should_repair: couldnt read the chunks");
+    //             return Ok(true);
+    //         }
+    //     };
 
-        // Check chunk count
-        if chunks.len() != manifest.merkle_tree.leaves.len() {
-            println!("should_repair: chunk count is mismatched");
-            return true; // Wrong count = repair needed
-        }
+    //     // Check chunk count
+    //     if chunks.len() != manifest.merkle_tree.leaves.len() {
+    //         println!("should_repair: chunk count is mismatched");
+    //         return Ok(true); // Wrong count = repair needed
+    //     }
 
-        // Verify data matches manifest
-        if !manifest.verify_against_chunks(&chunks) {
-            println!("should_repair: data is mismatching");
-            return true; // Data doesn't match = repair needed
-        }
+    //     // Verify data matches manifest
+    //     if !manifest.verify_against_chunks(&chunks)? {
+    //         println!("should_repair: data is mismatching");
+    //         return Ok(true); // Data doesn't match = repair needed
+    //     }
 
-        false
-    }
+    //     Ok(false)
+    // }
 
     // pub fn repair(&self) -> bool {
     //     // step 1: read all available chunks (data + parity)

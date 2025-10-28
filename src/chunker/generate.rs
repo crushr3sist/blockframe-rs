@@ -2,7 +2,7 @@ use super::Chunker;
 
 use reed_solomon_erasure::galois_8::ReedSolomon;
 impl Chunker {
-    pub fn get_chunks(&self, file_data: &[u8]) -> Vec<Vec<u8>> {
+    pub fn get_chunks(&self, file_data: &[u8]) -> Result<Vec<Vec<u8>>, std::io::Error> {
         let total_len = file_data.len();
         let chunk_size = (total_len + 5) / 6; // Round up to ensure we don't create more than 6 chunks
 
@@ -20,7 +20,7 @@ impl Chunker {
             }
         }
 
-        chunks
+        Ok(chunks)
     }
 
     pub fn generate_parity(
@@ -28,17 +28,23 @@ impl Chunker {
         data_chunks: &[Vec<u8>],
         data_shards: usize,
         parity_shards: usize,
-    ) -> Result<Vec<Vec<u8>>, String> {
+    ) -> Result<Vec<Vec<u8>>, std::io::Error> {
         // create Reed-Solomon encoded
-        let encoder = ReedSolomon::new(data_shards, parity_shards)
-            .map_err(|e| format!("Failed to create RS encoder: {:?}", e))?;
+        let encoder = ReedSolomon::new(data_shards, parity_shards).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create RS encoder: {:?}", e),
+            )
+        })?;
 
         // Find max chunk size (all chunks must be the same size for RS)
         let max_chunk_size = data_chunks
             .iter()
             .map(|chunk| chunk.len())
             .max()
-            .ok_or("No chunks provided")?;
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "No chunks provided")
+            })?;
 
         // Pad all data chunks to max size
         let mut padded_chunks: Vec<Vec<u8>> = data_chunks
@@ -60,9 +66,12 @@ impl Chunker {
             .collect();
 
         // magic: generate parity data
-        encoder
-            .encode(&mut all_shards)
-            .map_err(|e| format!("RS encoding failed: {:?}", e))?;
+        encoder.encode(&mut all_shards).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("RS encoding failed: {:?}", e),
+            )
+        })?;
 
         println!(
             "Generated {} parity chunks from {} data chunks",

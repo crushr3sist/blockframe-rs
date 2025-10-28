@@ -21,21 +21,21 @@ impl ManifestStructure {
         return serde_json::from_str(&content).ok();
     }
 
-    pub fn validate(&self) -> bool {
+    pub fn validate(&self) -> Result<bool, std::io::Error> {
         // check root hash is 64 hex characters for sha256
-        if !Self::is_valid_hash(&self.merkle_tree.root) {
-            return false;
+        if !Self::is_valid_hash(&self.merkle_tree.root)? {
+            return Ok(false);
         }
 
         // check we have leaves
         if self.merkle_tree.leaves.is_empty() {
-            return false;
+            return Ok(false);
         }
 
         // check each leaf hash
         for (_index, hash) in &self.merkle_tree.leaves {
-            if !Self::is_valid_hash(hash) {
-                return false;
+            if !Self::is_valid_hash(hash)? {
+                return Ok(false);
             }
         }
 
@@ -50,23 +50,23 @@ impl ManifestStructure {
 
         for (expected, actual) in indices.iter().enumerate() {
             if expected != *actual {
-                return false;
+                return Ok(false);
             }
         }
 
-        return true;
+        return Ok(true);
     }
 
-    pub fn is_valid_hash(hash: &str) -> bool {
-        hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())
+    pub fn is_valid_hash(hash: &str) -> Result<bool, std::io::Error> {
+        Ok(hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()))
     }
 
     /// verify manifest against actual chunk data
     /// returns true if everything matches, false if corrupted
-    pub fn verify_against_chunks(&self, chunks: &[Vec<u8>]) -> bool {
+    pub fn verify_against_chunks(&self, chunks: &[Vec<u8>]) -> Result<bool, std::io::Error> {
         // 1. Check we have the right number of chunks
         if chunks.len() != self.merkle_tree.leaves.len() {
-            return false;
+            return Ok(false);
         }
         // 2. hash each chunk and compare to manifest
         // so we're enumerateing through all fo the chunks fed to the function
@@ -74,19 +74,19 @@ impl ManifestStructure {
             // we're extracting an expected hash from the read manifest.json
             let expected_hash = match self.merkle_tree.leaves.get(&i.to_string()) {
                 Some(hash) => hash,
-                None => return false,
+                None => return Ok(false),
             };
             // our actual hash is calculated from the fed chunks
-            let actual_hash = sha256(chunk);
+            let actual_hash = sha256(chunk)?;
             // the rest you can figure out
             if &actual_hash != expected_hash {
-                return false;
+                return Ok(false);
             }
         }
-        let tree = MerkleTree::new(chunks.to_vec());
-        if tree.get_root() != self.merkle_tree.root {
-            return false;
+        let tree = MerkleTree::new(chunks.to_vec())?;
+        if tree.get_root()? != self.merkle_tree.root {
+            return Ok(false);
         }
-        return true;
+        Ok(true)
     }
 }

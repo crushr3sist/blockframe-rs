@@ -4,15 +4,12 @@ use std::path::Path;
 use blockframe::{chunker::Chunker, filestore::FileStore};
 
 macro_rules! timeit {
-    ($label:expr, $block:block) => {
-    {
+    ($label:expr, $block:block) => {{
         let start = std::time::Instant::now();
-        let result = {$block}
-        println!("{} took: {:.5}", $label, start.elapsed());
+        let result = { $block };
+        println!("{} took: {:.5?}", $label, start.elapsed());
         result
-    }
-
-    };
+    }};
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,22 +22,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = FileStore::new(store_path)?;
 
-    let chunker = Chunker::new().unwrap();
-    let time_for_example_file = timeit!("example file", {
-        let example_file = chunker.commit(example_file_path).expect("msg");
+    let chunker = Chunker::new()?;
+    let _ = timeit!("example file", {
+        let _ = chunker.commit(example_file_path)?;
     });
 
-    let time_for_big_file = timeit!("big file", {
-        let big_file = chunker.commit(big_file_path).expect("msg");
+    let _ = timeit!("big file", {
+        let _ = chunker.commit(big_file_path)?;
     });
 
-    let time_for_soft_read_of_files = timeit!("time taken for soft read of files", {
-        let files = store.as_hashmap();
+    let _ = timeit!("time taken for soft read of files", {
+        let files = store.as_hashmap()?;
         for file in files {
             for (file_name, file_data) in file {
                 println!("file name: {:?}", file_name);
-                println!("file hash: {:?}", file_data.get("hash").unwrap());
-                println!("file path: {:?}", file_data.get("path").unwrap());
+                println!(
+                    "file hash: {:?}",
+                    file_data.get("hash").ok_or_else(|| std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "error getting hash from file"
+                    ))
+                );
+                println!(
+                    "file path: {:?}",
+                    file_data.get("path").ok_or_else(|| std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "error getting path from file"
+                    ))
+                );
                 println!()
             }
         }

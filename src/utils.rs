@@ -1,59 +1,41 @@
 use blake3::Hasher;
-use std::{
-    fs::{self, File},
-    io,
-    path::Path,
-};
+use std::{fs::File, io, path::Path};
 use sysinfo::System;
 
-pub fn read_file_to_bytes(path: &str) -> Vec<u8> {
-    fs::read(path).expect("failed to read file")
-}
-
-pub fn dummy_data() -> Vec<Vec<u8>> {
-    let file = read_file_to_bytes("example.txt");
-    let chunk_size = file.len() / 6;
-
-    (0..file.len())
-        .step_by(chunk_size)
-        .map(|i| file[i..(i + chunk_size).min(file.len())].to_vec())
-        .collect()
-}
-
-pub fn sha256(data: &[u8]) -> String {
+pub fn sha256(data: &[u8]) -> Result<String, std::io::Error> {
     let mut hasher = Hasher::new();
     hasher.update(data);
     let result = hasher.finalize();
-    return result.to_string();
+    return Ok(result.to_string());
 }
 
-pub fn determine_segment_size(file_size: u64) -> usize {
+pub fn determine_segment_size(file_size: u64) -> Result<usize, std::io::Error> {
     const MIN_SEGMENT: usize = 512 * 1024; // 512KB
     // for small files just read the entire file as one segment
     if file_size < MIN_SEGMENT as u64 {
-        return file_size as usize;
+        return Ok(file_size as usize);
     }
 
     // adaptive option: for more juice
-    let available_ram = detect_available_memory();
+    let available_ram = detect_available_memory()?;
 
     if available_ram < 4_000_000 {
-        1 * 1024 * 1024
+        Ok(1 * 1024 * 1024)
     } else if available_ram < 16_000_000 {
-        8 * 1024 * 1024
+        Ok(8 * 1024 * 1024)
     } else {
-        32 * 1024 * 1024
+        Ok(32 * 1024 * 1024)
     }
 }
 
-fn detect_available_memory() -> u64 {
+fn detect_available_memory() -> Result<u64, std::io::Error> {
     let sys = System::new_all();
-    sys.available_memory()
+    Ok(sys.available_memory())
 }
 
 pub fn hash_file_streaming(file_path: &Path) -> Result<String, std::io::Error> {
-    let mut file = File::open(file_path).expect("");
+    let mut file = File::open(file_path)?;
     let mut hasher = Hasher::new();
-    io::copy(&mut file, &mut hasher).expect("");
+    io::copy(&mut file, &mut hasher)?;
     Ok(hasher.finalize().to_string())
 }

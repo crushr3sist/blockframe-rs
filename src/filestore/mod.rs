@@ -1,6 +1,5 @@
-use std::collections::{HashMap, hash_map};
-use std::ffi::OsStr;
-use std::fs::{self, DirEntry, ReadDir};
+use std::collections::HashMap;
+use std::fs::{self};
 use std::path::{Path, PathBuf};
 
 pub struct FileStore {
@@ -9,7 +8,7 @@ pub struct FileStore {
 
 impl FileStore {
     /// Create a new FileStore at the given path
-    pub fn new(store_path: &Path) -> Result<Self, String> {
+    pub fn new(store_path: &Path) -> Result<Self, std::io::Error> {
         Ok(FileStore {
             store_path: store_path.to_path_buf(),
         })
@@ -17,7 +16,7 @@ impl FileStore {
 
     pub fn as_hashmap(
         &self,
-    ) -> Vec<HashMap<std::string::String, HashMap<std::string::String, std::string::String>>> {
+    ) -> Result<Vec<HashMap<String, HashMap<String, String>>>, std::io::Error> {
         // very simple, walking the archive_directory
         // lets just return the manifest data
         // now lets turn the manifests into hash maps
@@ -41,7 +40,12 @@ impl FileStore {
                     let file_name_full: Vec<&str> = file_name.split("_").collect();
                     let (filename, file_hash) = if file_name_full.len() > 1 {
                         let name_parts = &file_name_full[..&file_name_full.len() - 1];
-                        let hash = file_name_full.last().unwrap();
+                        let hash = file_name_full.last().ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "couldnt extract the hash from file name",
+                            )
+                        })?;
                         (name_parts.join("_"), hash)
                     } else {
                         continue;
@@ -55,12 +59,11 @@ impl FileStore {
             }
         }
 
-        return file_hashmap;
+        return Ok(file_hashmap);
     }
 
     pub fn get_all(&self) {
         // this is where we fill in our structs and return a vector of our models
-
     }
 }
 
