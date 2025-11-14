@@ -1,7 +1,6 @@
 use crate::merkle_tree;
 
 use super::Chunker;
-use merkle_tree::manifest::ManifestStructure;
 
 impl Chunker {
     // pub fn should_repair(&self) -> Result<bool, std::io::Error> {
