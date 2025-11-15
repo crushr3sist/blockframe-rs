@@ -33,38 +33,33 @@ use blockframe::{chunker::Chunker, filestore::FileStore};
 /// # }
 /// ```
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // get our file_name
-
-    // let example_file_path = Path::new("example.txt");
+    //SECTION - data init
+    let example_file_path = Path::new("example.txt");
     // let big_file_path = Path::new("big_file.txt");
-
+    let shakespeare = Path::new("shakes_peare.txt");
+    let image = Path::new("unnamed.jpg");
     let store_path = Path::new("archive_directory");
 
-    let store = FileStore::new(store_path)?;
-
-    // let chunker = Chunker::new()?;
-    // let _ = chunker.commit(example_file_path)?;
-
+    //SECTION - chunk files
+    let chunker = Chunker::new()?;
+    let _ = chunker.commit(example_file_path)?;
     // let _ = chunker.commit(big_file_path)?;
+    let _ = chunker.commit(shakespeare)?;
+    let _ = chunker.commit(image)?;
 
+    //SECTION - file store
+    let store = FileStore::new(store_path)?;
     let files = store.get_all()?;
     for file in files {
-        // println!("filename: {:?}", file.file_name);
-        // println!("hash: {:?}", file.file_data.hash);
-        // println!("path: {:?}", file.file_data.path);
-
-        // println!("manifest: {:?}", file.manifest);
-        // println!(
-        //     "data-shards: {:?}",
-        //     file.manifest.erasure_coding.data_shards
-        // );
-        for node in file.manifest.merkle_tree.leaves {
-            println!("{:?}:{:?}\n", node.0, node.1);
-        }
+        store.reconstruct_with_iter(file)?;
     }
 
+    //SECTION - find function for some reason
+    // can be for repairs or health check
+    // make a file instance with hashes and chunk aggregator use merkle trees for repairs
     // let entry = store.find("big_file.txt");
 
+    //SECTION - repair functions
     // if chunker.repair() {
     //     println!("repair successful!");
     // } else {

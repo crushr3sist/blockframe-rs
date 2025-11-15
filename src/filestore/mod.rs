@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-use std::fs::{self};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::filestore::models::File;
+use crate::filestore::models::{File, ManifestFile};
 
-/// Lightweight wrapper around an archive directory that exposes helper
-/// functions for introspecting manifests on disk.
 pub struct FileStore {
     pub store_path: PathBuf,
 }
@@ -17,81 +15,7 @@ impl FileStore {
         })
     }
 
-    pub fn as_hashmap(
-        &self,
-    ) -> Result<Vec<HashMap<String, HashMap<String, String>>>, std::io::Error> {
-        // very simple, walking the archive_directory
-        // lets just return the manifest data
-        // now lets turn the manifests into hash maps
-        // file name: {hash: hash, path: path}
-
-        /*
-           files = [
-               {filename: "big_file.txt", file_data: {hash:"", path:""}}
-           ]
-        */
-        let mut file_hashmap: Vec<HashMap<String, HashMap<String, String>>> = Vec::new();
-        let all_dirs = fs::read_dir(&self.store_path);
-        let manifests: Vec<PathBuf> = all_dirs
-            .into_iter()
-            .flatten()
-            .filter_map(|entry| entry.ok())
-            .map(|f| f.path().join("manifest.json"))
-            .collect();
-
-        // now per path we're going to construct out hashmap structure
-
-        for path in manifests.iter() {
-            if let Some(file) = path.parent() {
-                let mut hash_map_entry: HashMap<String, HashMap<String, String>> = HashMap::new();
-                let components: Vec<_> = file.components().map(|f| f.as_os_str()).collect();
-                if let Some(file_name) = components[1].to_str() {
-                    let file_name_full: Vec<&str> = file_name.split("_").collect();
-                    let (filename, file_hash) = if file_name_full.len() > 1 {
-                        let name_parts = &file_name_full[..&file_name_full.len() - 1];
-                        let hash = file_name_full.last().ok_or_else(|| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "couldnt extract the hash from file name",
-                            )
-                        })?;
-                        (name_parts.join("_"), hash)
-                    } else {
-                        continue;
-                    };
-                    let mut hash_data: HashMap<String, String> = HashMap::new();
-                    hash_data.insert("hash".to_string(), file_hash.to_string());
-                    hash_data.insert("path".to_string(), path.display().to_string());
-                    hash_map_entry.insert(filename, hash_data);
-                    file_hashmap.push(hash_map_entry);
-                }
-            }
-        }
-
-        return Ok(file_hashmap);
-    }
-
     pub fn get_all(&self) -> Result<Vec<File>, Box<dyn std::error::Error>> {
-        /*
-           files = [
-               {filename: "big_file.txt", file_data: {hash:"", path:""}}
-           ]
-           files = [
-            File(
-                self.file_name = "big_file.txt",
-                self.file_data = FileData(
-                    self.hash = "awe;ofiawef"
-                    self.path = "awef/aef/awe"
-                )
-                self.manifest = Manifest(
-
-                )
-            )
-           ]
-
-        we need a File and FileData struct
-        */
-
         let mut file_list: Vec<File> = Vec::new();
         let all_dirs = fs::read_dir(&self.store_path);
         let manifests: Vec<PathBuf> = all_dirs
@@ -103,45 +27,79 @@ impl FileStore {
 
         println!("manifest files {:?}", manifests);
 
-        // now per path we're going to construct out hashmap structure
-
         for path in manifests.iter() {
-            if let Some(file) = path.parent() {
-                let components: Vec<_> = file.components().map(|f| f.as_os_str()).collect();
-                if let Some(file_name) = components[1].to_str() {
-                    let file_name_full: Vec<&str> = file_name.split("_").collect();
-                    let (filename, file_hash) = if file_name_full.len() > 1 {
-                        let name_parts = &file_name_full[..&file_name_full.len() - 1];
-                        let hash = file_name_full.last().ok_or_else(|| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "couldnt extract the hash from file name",
-                            )
-                        })?;
-                        (name_parts.join("_"), hash)
-                    } else {
-                        continue;
-                    };
-                    // now we need to read the actual file because for some reason we're using the manifest file as a search index
-                    // write a setter getter impl for ManifestFile
-                    // read the manifest file
-                    // read it as a json
-                    // read over the json data
-                    // and populate the fields of our models and provide a manifest file.
+            let manifest: ManifestFile =
+                ManifestFile::new(path.to_str().unwrap_or("").to_string())?;
 
-                    let file_entry =
-                        File::new(filename, file_hash.to_string(), path.display().to_string())?;
+            let file_entry = File::new(
+                manifest.name,
+                manifest.original_hash.to_string(),
+                path.display().to_string(),
+            )?;
 
-                    file_list.push(file_entry);
-                }
-            }
+            file_list.push(file_entry);
         }
 
         return Ok(file_list);
     }
 
-    pub fn reconstruct(&self) {}
+    pub fn reconstruct_with_iter(&self, file_obj: File) -> Result<(), Box<dyn std::error::Error>> {
+        // okay so we have a flat array of all of the chunks in order, we just need to append 1 by 1
+        let reconstruct_path = Path::new("reconstructed");
+        let file_name = file_obj.file_name.clone();
+        let chunks = self.get_chunks(file_obj)?;
+        let mut file_being_reconstructed = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(reconstruct_path.join(file_name))?;
 
+        for chunk in chunks {
+            let chunk_file = fs::read(chunk)?;
+            file_being_reconstructed.write_all(&chunk_file)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_chunks(&self, file_obj: File) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        let file_dir: PathBuf = Path::new(&file_obj.file_data.path)
+            .parent()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not get parent directory",
+                )
+            })?
+            .to_path_buf();
+        let file_dir = file_dir.join("segments");
+
+        let mut segments_folder: Vec<PathBuf> = fs::read_dir(file_dir)?
+            .filter_map(|entry| entry.ok())
+            .map(|f| f.path())
+            .collect();
+
+        segments_folder.sort_by_key(|path| {
+            path.file_stem()
+                .and_then(|folder| folder.to_str())
+                .and_then(|folder| folder.split("_").last())
+                .and_then(|index| index.parse::<usize>().ok())
+                .unwrap_or(0)
+        });
+
+        let mut all_chunks: Vec<PathBuf> = Vec::new();
+        for segment in segments_folder {
+            for i in 0..6 {
+                let chunk_path = PathBuf::from(
+                    segment
+                        .clone()
+                        .join("chunks")
+                        .join(format!("chunk_{:?}.dat", i)),
+                );
+                all_chunks.push(chunk_path);
+            }
+        }
+        Ok(all_chunks)
+    }
     pub fn find(&self) {}
 }
 
