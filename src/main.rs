@@ -3,39 +3,10 @@ use std::path::Path;
 // use blockframe::chunker::Chunker;
 use blockframe::{chunker::Chunker, filestore::FileStore};
 
-/// Commits two demonstration files, reports the elapsed time for each commit,
-/// and prints a lightweight summary of the archived metadata.
-///
-/// # Examples
-///
-/// ```
-/// # use std::path::Path;
-/// # use blockframe::{chunker::Chunker, filestore::FileStore};
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let sandbox = std::env::temp_dir().join(format!("blockframe_main_demo_{}", std::process::id()));
-/// if sandbox.exists() {
-///     std::fs::remove_dir_all(&sandbox)?;
-/// }
-/// std::fs::create_dir_all(&sandbox)?;
-/// let original = std::env::current_dir()?;
-/// std::env::set_current_dir(&sandbox)?;
-/// std::fs::write("example.txt", b"example data")?;
-/// std::fs::write("big_file.txt", b"big data")?;
-/// let store_path = Path::new("archive_directory");
-/// let store = FileStore::new(store_path)?;
-/// let chunker = Chunker::new()?;
-/// chunker.commit(Path::new("example.txt"))?;
-/// chunker.commit(Path::new("big_file.txt"))?;
-/// assert!(!store.as_hashmap()?.is_empty());
-/// std::env::set_current_dir(&original)?;
-/// std::fs::remove_dir_all(&sandbox)?;
-/// # Ok(())
-/// # }
-/// ```
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     //SECTION - data init
-    let example_file_path = Path::new("example.txt");
     // let big_file_path = Path::new("big_file.txt");
+    let example_file_path = Path::new("example.txt");
     let shakespeare = Path::new("shakes_peare.txt");
     let image = Path::new("unnamed.jpg");
     let store_path = Path::new("archive_directory");
@@ -47,23 +18,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = chunker.commit(shakespeare)?;
     let _ = chunker.commit(image)?;
 
-    //SECTION - file store
     let store = FileStore::new(store_path)?;
-    let files = store.get_all()?;
-    for file in files {
-        store.reconstruct_with_iter(file)?;
-    }
-
     //SECTION - find function for some reason
     // can be for repairs or health check
     // make a file instance with hashes and chunk aggregator use merkle trees for repairs
-    // let entry = store.find("big_file.txt");
+    let example_entry = store.find(&"example.txt".to_string())?;
+    store.repair_tiny(&example_entry)?;
+
+    let shakespeare_entry = store.find(&"shakes_peare.txt".to_string())?;
+    store.repair_tiny(&shakespeare_entry)?;
+
+    let image_entry = store.find(&"unnamed.jpg".to_string())?;
+
+    store.repair_tiny(&image_entry)?;
+    // println!();
+    // println!("big_file.txt full size: {:?}", store.get_size(&entry));
+    // println!();
+
+    //SECTION - file store
+    let files = store.get_all()?;
+
+    for file in files {
+        store.reconstruct(&file)?;
+    }
 
     //SECTION - repair functions
-    // if chunker.repair() {
-    //     println!("repair successful!");
+
+    // if store.should_repair(&entry)? {
+    //     println!("repair needed!");
+    //     store.repair(&entry)?;
     // } else {
-    //     println!("Repair failed - too many corrupted chunks");
+    //     println!("repair not needed");
     // }
 
     Ok(())

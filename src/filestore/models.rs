@@ -1,36 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::path::PathBuf;
+
+use crate::merkle_tree::manifest::ManifestFile;
 /// Manifest File Structures
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ErasureCoding {
-    pub data_shards: i8,
-    pub parity_shards: i8,
-    pub r#type: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MerkleTreeStructure {
-    pub leaves: HashMap<i32, String>,
-    pub root: String,
-}
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ManifestFile {
-    pub erasure_coding: ErasureCoding,
-    pub merkle_tree: MerkleTreeStructure,
-    pub name: String,
-    pub original_hash: String,
-    pub size: i32,
-    pub time_of_creation: String,
-}
-impl ManifestFile {
-    pub fn new(file_path: String) -> Result<Self, Box<dyn std::error::Error>> {
-        let file_json_string = fs::read_to_string(file_path)?;
-        let manifest_file: ManifestFile = serde_json::from_str(&file_json_string)?;
-
-        Ok(manifest_file)
-    }
-}
 #[derive(Debug, Clone)]
 
 pub struct FileData {

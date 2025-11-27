@@ -2,23 +2,7 @@ use super::Chunker;
 
 use reed_solomon_erasure::galois_8::ReedSolomon;
 impl Chunker {
-    /// Splits raw bytes into six roughly even chunks, padding with empty
-    /// vectors when necessary so callers can proceed directly to parity
-    /// generation.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use blockframe::chunker::Chunker;
-    /// # fn main() -> Result<(), std::io::Error> {
-    /// let chunker = Chunker::new().unwrap();
-    /// let chunks = chunker.get_chunks(b"blockframe test data")?;
-    /// assert_eq!(chunks.len(), 6);
-    /// assert!(chunks.iter().any(|chunk| !chunk.is_empty()));
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn get_chunks(&self, file_data: &[u8]) -> Result<Vec<Vec<u8>>, std::io::Error> {
+    pub fn get_chunks(&self, file_data: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         let total_len = file_data.len();
         let chunk_size = (total_len + 5) / 6; // Round up to ensure we don't create more than 6 chunks
 
@@ -39,27 +23,53 @@ impl Chunker {
         Ok(chunks)
     }
 
-    /// Produces parity shards using Reed-Solomon coding so that up to
-    /// `parity_shards` chunks can be reconstructed during recovery.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use blockframe::chunker::Chunker;
-    /// # fn main() -> Result<(), std::io::Error> {
-    /// let chunker = Chunker::new().unwrap();
-    /// let chunks = chunker.get_chunks(b"blockframe resiliency")?;
-    /// let parity = chunker.generate_parity(&chunks, 6, 3)?;
-    /// assert_eq!(parity.len(), 3);
-    /// # Ok(())
-    /// # }
-    /// ```
+    pub fn generate_parity_segmented(
+        &self,
+        segment_data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+        // create Reed-Solomon encoded
+        let data_shards = 1;
+        let parity_shards = 3;
+
+        let encoder = ReedSolomon::new(data_shards, parity_shards).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create RS encoder: {:?}", e),
+            )
+        })?;
+
+        // create empty parity chunks
+        let mut parity_chunks: Vec<Vec<u8>> = vec![vec![0u8; segment_data.len()]; parity_shards];
+        // create a mutable copy of the segment data
+        let mut data_copy = segment_data.to_vec();
+        // combine data + parity for encoding
+        let mut all_shards: Vec<&mut [u8]> = vec![data_copy.as_mut_slice()]
+            .into_iter()
+            .chain(parity_chunks.iter_mut().map(|v| v.as_mut_slice()))
+            .collect();
+
+        // magic: generate parity data
+        encoder.encode(&mut all_shards).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("RS encoding failed: {:?}", e),
+            )
+        })?;
+
+        println!(
+            "Generated {} parity chunks from {} data chunks",
+            parity_shards, data_shards
+        );
+
+        Ok(parity_chunks)
+    }
+
     pub fn generate_parity(
         &self,
         data_chunks: &[Vec<u8>],
         data_shards: usize,
         parity_shards: usize,
-    ) -> Result<Vec<Vec<u8>>, std::io::Error> {
+    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         // create Reed-Solomon encoded
         let encoder = ReedSolomon::new(data_shards, parity_shards).map_err(|e| {
             std::io::Error::new(

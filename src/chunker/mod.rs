@@ -34,6 +34,7 @@ pub struct ChunkedFile {
     pub data_shards: usize,
     pub parity_shards: usize,
 }
+
 impl Chunker {
     /// Creates a new [`Chunker`] instance with default shard counts suitable for
     /// Reed-Solomon encoding.
@@ -67,6 +68,5 @@ impl Chunker {
 
 mod commit;
 mod generate;
-mod health;
 mod helpers;
 mod io;

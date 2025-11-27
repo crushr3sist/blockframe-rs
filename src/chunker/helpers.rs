@@ -29,4 +29,16 @@ impl Chunker {
 
         Ok(segment_tree.get_root()?.to_string())
     }
+    pub fn hash_single_segment(
+        &self,
+        segment: &[u8],
+        parity: &[Vec<u8>],
+    ) -> Result<String, std::io::Error> {
+        let combined: Vec<Vec<u8>> = std::iter::once(segment.to_vec())
+            .chain(parity.iter().cloned())
+            .collect();
+        let segment_tree = MerkleTree::new(combined)?;
+
+        Ok(segment_tree.get_root()?.to_string())
+    }
 }

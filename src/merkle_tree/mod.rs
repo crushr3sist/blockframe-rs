@@ -1,6 +1,7 @@
 use crate::{merkle_tree::node::Node, utils::sha256};
 use serde_json::{self, Value, json};
 
+#[derive(Debug)]
 pub struct MerkleTree {
     pub chunks: Vec<Vec<u8>>,
     pub leaves: Vec<Node>,

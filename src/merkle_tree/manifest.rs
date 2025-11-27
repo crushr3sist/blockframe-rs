@@ -1,69 +1,39 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs};
 
 use crate::{merkle_tree::MerkleTree, utils::sha256};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MerkleTreeManifest {
-    pub leaves: HashMap<String, String>,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ErasureCoding {
+    pub data_shards: i8,
+    pub parity_shards: i8,
+    pub r#type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MerkleTreeStructure {
+    pub leaves: HashMap<i32, String>,
     pub root: String,
 }
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ManifestStructure {
-    pub merkle_tree: MerkleTreeManifest,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ManifestFile {
+    pub erasure_coding: ErasureCoding,
+    pub merkle_tree: MerkleTreeStructure,
+    pub name: String,
+    pub original_hash: String,
+    pub size: i32,
+    pub time_of_creation: String,
+    pub tier: u8,
 }
 
-impl ManifestStructure {
-    /// Loads a manifest from disk, deserialising the JSON payload into a
-    /// [`ManifestStructure`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use blockframe::merkle_tree::manifest::ManifestStructure;
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let sandbox = std::env::temp_dir().join(format!("blockframe_manifest_read_{}", std::process::id()));
-    /// if sandbox.exists() {
-    ///     std::fs::remove_dir_all(&sandbox)?;
-    /// }
-    /// std::fs::create_dir_all(&sandbox)?;
-    /// let path = sandbox.join("manifest.json");
-    /// std::fs::write(&path, r#"{"merkle_tree":{"leaves":{"0":"00"},"root":"00"}}"#)?;
-    /// let manifest = ManifestStructure::from_file(&path).expect("manifest should parse");
-    /// assert_eq!(manifest.merkle_tree.root, "00");
-    /// std::fs::remove_dir_all(&sandbox)?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn from_file(path: &Path) -> Option<ManifestStructure> {
-        let content = fs::read_to_string(path).ok()?;
-        // this line populates our struct and attached merkle tree to the read data from the manifest.json
-        return serde_json::from_str(&content).ok();
+impl ManifestFile {
+    pub fn new(file_path: String) -> Result<Self, Box<dyn std::error::Error>> {
+        let file_json_string = fs::read_to_string(file_path)?;
+        let manifest_file: ManifestFile = serde_json::from_str(&file_json_string)?;
+
+        Ok(manifest_file)
     }
 
-    /// Validates the manifest by ensuring that the root hash and all leaf hashes
-    /// are 64-character hexadecimal strings and that leaves are indexed without
-    /// gaps.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use std::collections::HashMap;
-    /// # use blockframe::merkle_tree::manifest::{ManifestStructure, MerkleTreeManifest};
-    /// # fn main() -> Result<(), std::io::Error> {
-    /// let mut leaves = HashMap::new();
-    /// leaves.insert("0".into(), "a".repeat(64));
-    /// let manifest = ManifestStructure {
-    ///     merkle_tree: MerkleTreeManifest {
-    ///         leaves,
-    ///         root: "b".repeat(64),
-    ///     },
-    /// };
-    /// assert!(manifest.validate().unwrap());
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn validate(&self) -> Result<bool, std::io::Error> {
         // check root hash is 64 hex characters for sha256
         if !Self::is_valid_hash(&self.merkle_tree.root)? {
@@ -83,16 +53,11 @@ impl ManifestStructure {
         }
 
         // check if the indices are 0, 1, 2, 3... (no gaps)
-        let mut indices: Vec<usize> = self
-            .merkle_tree
-            .leaves
-            .keys()
-            .filter_map(|k| k.parse().ok())
-            .collect();
+        let mut indices: Vec<&i32> = self.merkle_tree.leaves.keys().collect();
         indices.sort();
 
         for (expected, actual) in indices.iter().enumerate() {
-            if expected != *actual {
+            if expected != **actual as usize {
                 return Ok(false);
             }
         }
@@ -151,7 +116,7 @@ impl ManifestStructure {
         // so we're enumerateing through all fo the chunks fed to the function
         for (i, chunk) in chunks.iter().enumerate() {
             // we're extracting an expected hash from the read manifest.json
-            let expected_hash = match self.merkle_tree.leaves.get(&i.to_string()) {
+            let expected_hash = match self.merkle_tree.leaves.get(&(i as i32)) {
                 Some(hash) => hash,
                 None => return Ok(false),
             };

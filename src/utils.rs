@@ -58,10 +58,13 @@ pub fn determine_segment_size(file_size: u64) -> Result<usize, std::io::Error> {
     let available_ram = detect_available_memory()?;
 
     if available_ram < 4_000_000 {
+        // 1mb
         Ok(1 * 1024 * 1024)
     } else if available_ram < 16_000_000 {
+        // 8mb
         Ok(8 * 1024 * 1024)
     } else {
+        // 32mb
         Ok(32 * 1024 * 1024)
     }
 }
