@@ -1,4 +1,4 @@
-use reed_solomon_erasure::galois_8::ReedSolomon;
+// use reed_solomon_simd::ReedSolomonEncoder;
 use std::{fs, path::Path};
 
 use crate::{filestore::models::File, utils::sha256};
@@ -6,6 +6,14 @@ use crate::{filestore::models::File, utils::sha256};
 use super::FileStore;
 
 impl FileStore {
+    pub fn repair(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
+        match file_obj.manifest.tier {
+            1 => self.repair_tiny(file_obj),
+            2 => self.repair_segment(file_obj),
+            3 => self.repair_blocked(file_obj),
+            _ => Err("unknown tier".into()),
+        }
+    }
     pub fn repair_tiny(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
         let file_dir = Path::new(&file_obj.file_data.path)
             .parent()
@@ -26,7 +34,19 @@ impl FileStore {
 
         Err("no valid parity found".into())
     }
+    pub fn repair_segment(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
+        // essentially, we know the file contains the manifest
+        // we have the hashes, so what we need to do is just read the segment,
+        // and check if the manifest leaves are the same hash
 
+        let file_mk_leaves = &file_obj.manifest.merkle_tree.leaves;
+        println!("file_mk_leaves: please be sorted\n:{:?}", file_mk_leaves);
+
+        Ok(())
+    }
+    pub fn repair_blocked(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
     // pub fn should_repair(&self, file_obj: &File) -> Result<bool, Box<dyn std::error::Error>> {
     //     if !file_obj.manifest.validate()? {
     //         println!("should_repair: failed to verify the manifest");

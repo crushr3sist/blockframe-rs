@@ -4,6 +4,14 @@ use std::{collections::HashMap, fs};
 use crate::{merkle_tree::MerkleTree, utils::sha256};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BlockInfo {
+    pub block_id: usize,
+    pub block_root: String,
+    pub segment_hashes: Vec<String>,
+    pub parity_hashes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErasureCoding {
     pub data_shards: i8,
     pub parity_shards: i8,
@@ -21,7 +29,7 @@ pub struct ManifestFile {
     pub merkle_tree: MerkleTreeStructure,
     pub name: String,
     pub original_hash: String,
-    pub size: i32,
+    pub size: i64,
     pub time_of_creation: String,
     pub tier: u8,
 }

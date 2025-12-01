@@ -1,7 +1,9 @@
 use super::Chunker;
 use chrono::{DateTime, Utc};
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::{
     fs::{self},
     path::Path,
@@ -11,90 +13,23 @@ use serde_json::json;
 
 use crate::merkle_tree::MerkleTree;
 impl Chunker {
-    pub fn read_chunks(&self) -> Result<Vec<Vec<u8>>, std::io::Error> {
-        let read_dir = fs::read_dir(&self.file_dir.as_ref().ok_or(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "file_dir is None",
-        ))?)?;
-        let chunks = read_dir
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .map_or(false, |name| name != "manifest.json")
-            })
-            .filter_map(|path| fs::read(path).ok())
-            .collect();
-        Ok(chunks)
-    }
-
     pub fn check_for_archive_dir(&self) -> Result<(), std::io::Error> {
         Ok(if !Path::new("archive_directory").is_dir() {
             self.create_dir(Path::new("archive_directory"))?;
         })
     }
 
-    pub fn write_segment_chunks(
-        &self,
-        segment_index: usize,
-        file_name: &String,
-        file_hash: &String,
-        chunks: &[Vec<u8>],
-        parity: &[Vec<u8>],
-    ) -> Result<(), std::io::Error> {
-        // so we need to write the segments now.
-        // lets get our archive directory
-        let archive_dir = &self.get_dir(file_name, file_hash)?.join("segments");
-        let segment_dir = archive_dir.join(format!("segment_{}", segment_index));
-        self.create_dir(&segment_dir)?;
-        // we're already looping through our segments
-        // so we need to create a dir with the segment index
-        // once we have that, we need to now create a chunks dir and a parity dir
-        let chunks_dir = segment_dir.join("chunks");
-        let parity_dir = segment_dir.join("parity");
-        self.create_dir(&chunks_dir)?;
-        self.create_dir(&parity_dir)?;
-        // now inside of those dirs, we need to call write chunks and write_parity.
-        self.write_chunks(&chunks_dir, chunks)?;
-        self.write_parity_chunks(&parity_dir, parity)?;
-        Ok(())
-    }
-
     pub fn write_segment(
         &self,
         segment_index: usize,
-        file_name: &String,
-        file_hash: &String,
+        segment_dir: &PathBuf,
         segment: &[u8],
     ) -> Result<(), Box<dyn std::error::Error>> {
         // we're just going to go to the segment directory, and write the segment_0.dat etc
 
-        let segment_dir = &self.get_dir(file_name, file_hash)?.join("segments");
-        &self.create_dir(&segment_dir);
         let segment_file = segment_dir.join(format!("segment_{}.dat", segment_index));
         fs::write(segment_file, segment)?;
 
-        Ok(())
-    }
-
-    pub fn write_chunks(
-        &self,
-        chunks_dir: &Path,
-        chunks: &[Vec<u8>],
-    ) -> Result<(), std::io::Error> {
-        for (index, chunk) in chunks.iter().enumerate() {
-            let chunk_filename = format!("chunk_{}.dat", index);
-            let chunk_path = chunks_dir.join(chunk_filename);
-            let file = File::create(&chunk_path)?;
-
-            let mut writer = BufWriter::new(file);
-
-            writer.write_all(chunk)?;
-
-            println!("Write data chunk {} ({} bytes)", index, chunk.len());
-        }
         Ok(())
     }
 
@@ -103,6 +38,8 @@ impl Chunker {
         parity_dir: &Path,
         parity: &[Vec<u8>],
     ) -> Result<(), std::io::Error> {
+        // TIER 1
+
         for (index, chunk) in parity.iter().enumerate() {
             let parity_filename = format!("parity_{}.dat", index);
             let parity_path = parity_dir.join(parity_filename);
@@ -121,12 +58,28 @@ impl Chunker {
         parity_dir: &Path,
         parity: &[Vec<u8>],
     ) -> Result<(), std::io::Error> {
-        // should only run 3 iterations
-        if !Path::new(parity_dir).is_dir() {
-            &self.create_dir(parity_dir);
-        }
+        // TIER 2
+
         for (index, chunk) in parity.iter().enumerate() {
             let parity_filename = format!("segment_{}_parity_{}.dat", segment_idx, index);
+            let parity_path = parity_dir.join(parity_filename);
+            let file = File::create(&parity_path)?;
+            let mut writer = BufWriter::new(file);
+            writer.write_all(chunk)?;
+            println!("wrote parity chunk {} ({} bytes)", index, chunk.len());
+        }
+        Ok(())
+    }
+
+    pub fn write_blocked_parities(
+        &self,
+        parity_dir: &Path,
+        parity: &[Vec<u8>],
+    ) -> Result<(), std::io::Error> {
+        // TIER 2
+
+        for (index, chunk) in parity.iter().enumerate() {
+            let parity_filename = format!("block_parity_{}.dat", index);
             let parity_path = parity_dir.join(parity_filename);
             let file = File::create(&parity_path)?;
             let mut writer = BufWriter::new(file);

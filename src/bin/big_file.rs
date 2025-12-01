@@ -1,32 +1,38 @@
-use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
-use rand::{Rng, TryRngCore};
+use rand::{RngCore, TryRngCore};
 
-const SIZE: usize = 2 * 1024 * 1024 * 1024;
+const SIZE: u64 = 11_000_000_000;
+const CHUNK_SIZE: usize = 64 * 1024 * 1024; // 64MB chunks
 
-/// Fills a 2&nbsp;GiB buffer with cryptographically secure random bytes and writes it to
-/// `big_file.txt` in the current working directory.
-///
-/// The function is intentionally minimal: it streams random data directly into a
-/// preallocated buffer before persisting it, providing a quick way to manufacture a
-/// large file for benchmarking the rest of the project.
-///
-/// # Examples
-///
-/// ```
-/// use rand::rngs::OsRng;
-/// use rand::RngCore;
-///
-/// // The real binary writes 2 GiB, but the technique scales to any size.
-/// let mut sample = vec![0u8; 32];
-/// OsRng.fill_bytes(&mut sample);
-/// assert!(sample.iter().any(|byte| *byte != 0));
-/// ```
-fn main() {
+fn main() -> std::io::Result<()> {
     let mut rng = rand::rngs::OsRng;
+    let file = File::create("11gb.txt")?;
+    let mut writer = BufWriter::with_capacity(CHUNK_SIZE, file);
 
-    let mut random_bytes: Vec<u8> = vec![0; SIZE];
-    rng.try_fill_bytes(&mut random_bytes).expect("msg");
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut remaining = SIZE;
 
-    fs::write("big_file.txt", random_bytes).expect("msg");
+    println!(
+        "Generating {}GB file in {}MB chunks...",
+        SIZE / 1_000_000_000,
+        CHUNK_SIZE / 1_000_000
+    );
+
+    while remaining > 0 {
+        let chunk_size = remaining.min(CHUNK_SIZE as u64) as usize;
+        let _ = rng.try_fill_bytes(&mut buffer[..chunk_size]);
+        writer.write_all(&buffer[..chunk_size])?;
+        remaining -= chunk_size as u64;
+
+        let progress = ((SIZE - remaining) as f64 / SIZE as f64 * 100.0) as u32;
+        if progress % 10 == 0 {
+            println!("Progress: {}%", progress);
+        }
+    }
+
+    writer.flush()?;
+    println!("Done! Created 6gb.txt");
+    Ok(())
 }

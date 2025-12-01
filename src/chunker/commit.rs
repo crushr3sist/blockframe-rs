@@ -1,15 +1,17 @@
-use std::fs;
 use std::fs::File;
 use std::path::Path;
+use std::{fs, os::windows::fs::MetadataExt};
 
 use super::Chunker;
 use crate::chunker::ChunkedFile;
 use crate::merkle_tree::MerkleTree;
 use crate::utils::sha256;
+use rayon::prelude::*;
+use reed_solomon_simd::ReedSolomonEncoder;
 
 use std::io::Read;
 
-use crate::utils::{determine_segment_size, hash_file_streaming};
+use crate::utils::determine_segment_size;
 
 use memmap2::Mmap;
 
@@ -22,9 +24,20 @@ impl Chunker {
         tier: u8,
     ) -> Result<ChunkedFile, Box<dyn std::error::Error>> {
         let file_data = fs::read(file_path)?;
-        let shards = vec![file_data.clone()];
+        // our tiny file needs to be round up to a multiple of 64
 
-        let parity = self.generate_parity(&shards, 1, 3)?;
+        let padded_size = ((file_data.len() + 63) / 64) * 64;
+
+        let mut padded_data = file_data.to_vec();
+        padded_data.resize(padded_size, 0);
+
+        let mut rs_encoder = ReedSolomonEncoder::new(1, 3, padded_size)?;
+        // Add all data shards
+        rs_encoder.add_original_shard(&padded_data)?;
+        let result = rs_encoder.encode()?;
+
+        // Extract parity shards
+        let parity: Vec<Vec<u8>> = result.recovery_iter().map(|shard| shard.to_vec()).collect();
 
         let file_name = file_path
             .file_name()
@@ -99,7 +112,6 @@ impl Chunker {
             .and_then(|name| name.to_str())
             .ok_or("error getting filename")?
             .to_string();
-        dbg!(&file_name);
 
         // our mmap flag, its prefixed with _ as it might be false and empty
         let _mmap: Option<Mmap>;
@@ -136,16 +148,17 @@ impl Chunker {
         // 30 segments x 3 parity shards = 90 files generated in total
         let num_segments = (file_size + segment_size - 1) / segment_size;
 
-        // as our file is not in memory
-        // the hash is generated through streaming the file's buffer into the hasher function
-        let file_hash = hash_file_streaming(file_path)?;
+        println!("Computing file hash while processing segments...");
+        let mut file_hasher = blake3::Hasher::new();
 
-        // first 10 characters of our hash
-        let file_trun_hash = &file_hash[0..10].to_string();
+        let file_hash_placeholder = "computing";
+        let file_dir = self.get_dir(&file_name, &file_hash_placeholder.to_string())?;
+        let parity_dir = &file_dir.join("parity");
+        let segments_dir = &file_dir.join("segments");
 
-        // generating the directory for our generated files
-        // {filename}_{file_trun_hash}
-        let file_dir = self.get_dir(&file_name, &file_hash)?;
+        self.create_dir(&file_dir)?;
+        self.create_dir(&file_dir.join("parity"))?;
+        self.create_dir(&file_dir.join("segments"))?;
 
         // a check and create function for our archive directory
         self.check_for_archive_dir()?;
@@ -189,21 +202,31 @@ impl Chunker {
                 // segment data is taken straight from our file read buffer, and all of the file is filled into it.
                 segment_data = &buffer[..bytes_read];
             }
+
             // again this is where we're dividing our data into chunks
             // here we need to just *write* our segment, instead of distributing it into chunks
             // TODO: make a `self.write_segment`
             // TODO: check what write-segment-chunks does and copy it for a
 
-            self.write_segment(segment_index, &file_name, &file_hash, &segment_data)?;
+            // Hash file data as we process segments
+            file_hasher.update(segment_data);
 
             let parity = self.generate_parity_segmented(&segment_data)?;
-            let parity_dir = &self.get_dir(&file_name, &file_hash)?.join("parity");
 
+            self.write_segment(segment_index, segments_dir, &segment_data)?;
             self.write_segment_parities(segment_index, parity_dir, &parity)?;
-
             let segment_hash = self.hash_single_segment(&segment_data, &parity)?;
             segment_hashes.push(segment_hash);
         }
+
+        // Finalize hash after processing all segments
+        let file_hash = file_hasher.finalize().to_string();
+        let file_trun_hash = &file_hash[0..10].to_string();
+        println!("File hash computed: {}", file_trun_hash);
+
+        // Rename directory to include actual hash
+        let final_file_dir = self.get_dir(&file_name, &file_hash)?;
+        std::fs::rename(&file_dir, &final_file_dir)?;
 
         let merkle_tree = MerkleTree::from_hashes(segment_hashes)?;
 
@@ -214,7 +237,7 @@ impl Chunker {
             file_size,
             6,
             3,
-            &file_dir,
+            &final_file_dir,
             tier,
         )?;
 
@@ -223,10 +246,177 @@ impl Chunker {
             file_size: file_size,
             segment_size: segment_size,
             num_segments: num_segments,
-            file_dir: file_dir,
+            file_dir: final_file_dir,
             file_trun_hash: file_trun_hash.clone(),
             file_hash: file_hash,
             merkle_tree: merkle_tree,
+            data_shards: self.data_shards,
+            parity_shards: self.parity_shards,
+        })
+    }
+
+    pub fn commit_blocked(
+        &self,
+        file_path: &Path,
+        tier: u8,
+    ) -> Result<ChunkedFile, Box<dyn std::error::Error>> {
+        // open the file as a buffer object
+        let file = File::open(file_path)?;
+
+        // get the file size
+        let file_size = file.metadata()?.file_size() as usize;
+
+        // extract the file name
+        let file_name = file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("error getting filename")?
+            .to_string();
+
+        // our file data buffer
+        let file_data: &[u8];
+
+        // we're just gonna use mmap because we'd want to for files this size
+        let mmap = Some(unsafe { Mmap::map(&file)? });
+
+        // assigning our file data buffer to our mmap file buffer reference
+        file_data = mmap.as_ref().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Other, "could not copy data into memmap")
+        })?;
+        // using system available memory, getting the sizes of our segments
+        let segment_size = determine_segment_size(file_size as u64)? as usize;
+
+        // how many in total segments will be made from our file
+        let num_segments: usize = (file_size + segment_size - 1) / segment_size;
+
+        // how many blocks will be built with our segments
+        // each block needs to have max 30 segments
+        let blocks = (num_segments as f64 / 30.0).ceil() as usize;
+
+        // our file hasher, from blake3, using simd
+        let file_hasher = blake3::Hasher::new();
+
+        let file_hash_placeholder = "computing";
+        let file_dir = self.get_dir(&file_name, &file_hash_placeholder.to_string())?;
+        self.check_for_archive_dir()?;
+
+        let blocks_dir = &file_dir.join("blocks");
+
+        self.create_dir(&file_dir)?;
+        self.create_dir(&blocks_dir)?;
+
+        // pre-create all of the directories needed
+        // done to reduce operations per iteration
+        let _: Result<(), Box<dyn std::error::Error>> = (0..blocks)
+            .into_iter()
+            .map(|block_index| {
+                let current_block_dir = blocks_dir.join(format!("block_{}", block_index));
+
+                self.create_dir(&current_block_dir)?;
+                self.create_dir(&current_block_dir.join("segments"))?;
+                self.create_dir(&current_block_dir.join("parity"))?;
+                Ok(())
+            })
+            .collect();
+
+        let block_root_hashes: Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> = (0
+            ..blocks)
+            .into_par_iter()
+            .map(
+                |block_index| -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+                    let current_block_dir = blocks_dir.join(format!("block_{}", block_index));
+
+                    let mut block_segments_refs: Vec<&[u8]> = Vec::with_capacity(30);
+                    let mut segment_hashes = Vec::with_capacity(30);
+
+                    for segment_index in 0..30 {
+                        let global_segment = block_index * 30 + segment_index;
+
+                        let segment_start = global_segment * segment_size;
+                        let segment_end =
+                            ((global_segment + 1) * segment_size).min(file_data.len());
+
+                        if segment_start >= file_data.len() {
+                            break;
+                        }
+
+                        let segment_data = &file_data[segment_start..segment_end];
+
+                        self.write_segment(
+                            segment_index,
+                            &current_block_dir.join("segments"),
+                            segment_data,
+                        )
+                        .map_err(
+                            |e| -> Box<dyn std::error::Error + Send + Sync> {
+                                e.to_string().into()
+                            },
+                        )?;
+
+                        let segment_hash = sha256(segment_data)?;
+                        segment_hashes.push(segment_hash);
+
+                        block_segments_refs.push(segment_data);
+                    }
+
+                    let parity = self
+                        .generate_parity(&block_segments_refs, *&block_segments_refs.len(), 3)
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                            e.to_string().into()
+                        })?;
+
+                    self.write_blocked_parities(&current_block_dir.join("parity"), &parity)?;
+
+                    let mut parity_hashes = Vec::new();
+
+                    for p in &parity {
+                        parity_hashes.push(sha256(p)?);
+                    }
+
+                    let mut block_leaf_hashes = segment_hashes;
+                    block_leaf_hashes.extend(parity_hashes);
+
+                    let block_merkle = MerkleTree::from_hashes(block_leaf_hashes)?;
+
+                    let block_root = block_merkle.root.hash_val.to_string();
+
+                    Ok(block_root)
+                },
+            )
+            .collect();
+
+        let block_root_hashes =
+            block_root_hashes.map_err(|e| -> Box<dyn std::error::Error> { e })?;
+
+        let file_hash = file_hasher.finalize().to_string();
+        let file_trun_hash = &file_hash[0..10].to_string();
+        println!("File hash computed: {}", file_trun_hash);
+
+        let final_file_dir = self.get_dir(&file_name, &file_hash)?;
+        std::fs::rename(&file_dir, &final_file_dir)?;
+
+        let file_merkle_tree = MerkleTree::from_hashes(block_root_hashes)?;
+
+        self.write_manifest(
+            &file_merkle_tree,
+            &file_hash,
+            &file_name,
+            file_size,
+            30,
+            3,
+            &final_file_dir,
+            tier,
+        )?;
+
+        Ok(ChunkedFile {
+            file_name: file_name,
+            file_size: file_size,
+            segment_size: segment_size,
+            num_segments: num_segments,
+            file_dir: final_file_dir,
+            file_trun_hash: file_trun_hash.clone(),
+            file_hash: file_hash,
+            merkle_tree: file_merkle_tree,
             data_shards: self.data_shards,
             parity_shards: self.parity_shards,
         })
@@ -240,18 +430,16 @@ impl Chunker {
         let tier: u8 = match file_size {
             0..=10_000_000 => 1,
             10_000_000..=1_000_000_000 => 2,
-            1_000_000_000..=10_000_000_000 => 3,
+            1_000_000_000..=35_000_000_000 => 3,
             _ => 4,
         };
 
         let which = match tier {
             1 => self.commit_tiny(file_path, file_size, tier)?,
             2 => self.commit_segmented(file_path, tier)?,
-            3 => self.commit_segmented(file_path, tier)?,
+            3 => self.commit_blocked(file_path, tier)?,
             4 => self.commit_segmented(file_path, tier)?,
             _ => self.commit_segmented(file_path, tier)?,
-            // 3 => self.commit_blocked(),
-            // _ => self.commit_hierarchical()?,
         };
 
         Ok(which)
