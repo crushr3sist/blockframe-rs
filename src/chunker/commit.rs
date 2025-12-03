@@ -76,6 +76,7 @@ impl Chunker {
             3,
             &file_dir,
             tier,
+            padded_size as u64,
         )?;
 
         Ok(ChunkedFile {
@@ -239,6 +240,7 @@ impl Chunker {
             3,
             &final_file_dir,
             tier,
+            segment_size as u64,
         )?;
 
         Ok(ChunkedFile {
@@ -293,9 +295,6 @@ impl Chunker {
         // each block needs to have max 30 segments
         let blocks = (num_segments as f64 / 30.0).ceil() as usize;
 
-        // our file hasher, from blake3, using simd
-        let file_hasher = blake3::Hasher::new();
-
         let file_hash_placeholder = "computing";
         let file_dir = self.get_dir(&file_name, &file_hash_placeholder.to_string())?;
         self.check_for_archive_dir()?;
@@ -325,9 +324,10 @@ impl Chunker {
             .map(
                 |block_index| -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
                     let current_block_dir = blocks_dir.join(format!("block_{}", block_index));
+                    let block_segments_dir = current_block_dir.join("segments");
+                    let block_parity_dir = current_block_dir.join("parity");
 
                     let mut block_segments_refs: Vec<&[u8]> = Vec::with_capacity(30);
-                    let mut segment_hashes = Vec::with_capacity(30);
 
                     for segment_index in 0..30 {
                         let global_segment = block_index * 30 + segment_index;
@@ -342,30 +342,38 @@ impl Chunker {
 
                         let segment_data = &file_data[segment_start..segment_end];
 
-                        self.write_segment(
-                            segment_index,
-                            &current_block_dir.join("segments"),
-                            segment_data,
-                        )
-                        .map_err(
-                            |e| -> Box<dyn std::error::Error + Send + Sync> {
-                                e.to_string().into()
-                            },
-                        )?;
-
-                        let segment_hash = sha256(segment_data)?;
-                        segment_hashes.push(segment_hash);
-
                         block_segments_refs.push(segment_data);
                     }
 
+                    // fan the disk writes out because serialising 30 files in a row is painful
+                    let hashed_pairs: Vec<(usize, String)> = block_segments_refs
+                        .par_iter()
+                        .enumerate()
+                        .map(
+                            |(segment_index, segment_data)| -> Result<_, std::io::Error> {
+                                self.write_segment(
+                                    segment_index,
+                                    &block_segments_dir,
+                                    segment_data,
+                                )?;
+                                let hash = sha256(segment_data)?;
+                                Ok((segment_index, hash))
+                            },
+                        )
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    let mut segment_hashes = vec![String::new(); hashed_pairs.len()];
+                    for (idx, hash) in hashed_pairs {
+                        segment_hashes[idx] = hash;
+                    }
+
                     let parity = self
-                        .generate_parity(&block_segments_refs, *&block_segments_refs.len(), 3)
+                        .generate_parity(&block_segments_refs, block_segments_refs.len(), 3)
                         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
                             e.to_string().into()
                         })?;
 
-                    self.write_blocked_parities(&current_block_dir.join("parity"), &parity)?;
+                    self.write_blocked_parities(&block_parity_dir, &parity)?;
 
                     let mut parity_hashes = Vec::new();
 
@@ -388,7 +396,8 @@ impl Chunker {
         let block_root_hashes =
             block_root_hashes.map_err(|e| -> Box<dyn std::error::Error> { e })?;
 
-        let file_hash = file_hasher.finalize().to_string();
+        // mmap already handed us the full file, so just hash the slice directly
+        let file_hash = sha256(file_data)?;
         let file_trun_hash = &file_hash[0..10].to_string();
         println!("File hash computed: {}", file_trun_hash);
 
@@ -406,6 +415,7 @@ impl Chunker {
             3,
             &final_file_dir,
             tier,
+            segment_size as u64,
         )?;
 
         Ok(ChunkedFile {

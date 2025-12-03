@@ -1,68 +1,422 @@
-# essential functionality
+# BlockFrame-RS
 
-- chunk files
-- reconstruct files
+**Self-healing, terabyte-scale archival storage built from first principles.**
 
-# how is this used
+BlockFrame is an erasure-coded storage system engineered to compete with enterprise data providers—without the enterprise price tag. It's designed for developers, data hoarders, and anyone who believes you should own and control your own data infrastructure.
 
-This library is used to chunk files. simples. If you find it interesting or useful then you're a smarter person than I am. This library is created to facilitate reading and writting files in chunks. It's based around an optimisation for I/O operations where reading a whole is not that fast and chokes your memory. Although it alters your files, but not permanently, and if something does happen, you can easily reverse engineer the operations and figure out how to put your files back to normal :). My end goal for this library is to write it as a http file server, and provide code bindings to interact with the server, like an orm. It would be its own service, self managing with caching and streaming responses with play pause functionality. Using a database is a bottle neck but it would provide an ironclad security of files being reconstructed.
+> _"Get what you need, when you need it."_
 
-## how can we ensure proper reconstruction
+---
 
-when we split, we're breaking the file apart, its immediately corrupted.
-the way we can ensure this, is to:
+## The Vision
 
-- hash the complete file. we store that hash and use it for the sorce of truth.
-- when we split out chunks, we do add more data, we add a header/push data into the file.
-  - that data we push into the file, it stores the chunk file's hash
-  - we need to store that hash into a chunk, after we've calculated it, so that when the file is being reconstructed, we can ensure that those hashes match.
-  - this is a overhaul security of file, and it might seem like you're doing more operations when you can just:
-    1. read a file
-    2. and send it line by line
-       but when we're dealing with low-speed/bandwidth internet, pushing a whole file would be very difficult to reach
-       for big files, if you're reading huge dataset files, and they're not chunked, in order to use them, they'd be read, whole, into memory which is not what's useful. although, idk how this library would solve that problem. when using a dataset, the whole thing needs to be read into memory. maybe we can speed up the reading process by streaming read.
+Cloud storage providers charge you for capacity, egress, and availability. They hold your data hostage behind APIs, quotas, and unpredictable pricing. BlockFrame takes a different approach:
 
-## addition of merkle trees
+**House your own data.** Run your own infrastructure. Stream exactly the bytes you need without downloading entire files. Recover from hardware failures without backups. Pay once for hardware, not forever for access.
 
-chunking is a dangerous operation for files. You are tearing files apart and permanently altering them. So in-order to sustain that files are reconstructed properly, we need to create an identity hash to ensure those hashes arent changed. A solution for this problem is to simply hash the original file, then chunk the file, then hash those chunks and keep track of those hashes. Now thats a valid solution, but there's an ineffecientcy with that solution, as that there's no integrity of that solution.
-what do merkle tree's unlock?
+This isn't a wrapper around S3 or a database abstraction. This is a ground-up implementation of erasure-coded storage with:
 
-1. partial verification: instead of having to reconstruct the whole file and then checking the integrity of chunks to see if that chunk still belongs to its original file structure, merkle tree's allow us to verify each chunk independently, all we'd need is the root hash and the chunk's hash, from there we can verify the chunk simply due to the proofing method.
-2. incremental updates to file: since our tree is built from leaves to root, leaves are the first place for change to occur, which allows for some optimised on the fly changes to the file itself. hypothetically if you're writting an asset manager for a big company that needs to physically sustain security for thier files (although its quite easy to reverse engineer the trees without encryption for the original file) for usable archival purposes, if for an example the file needed some editing, that could occur on the fly, and that would occur with o(log N) instead of o(n)
-3. plug and play for distributed systems: since merkle tree's computation is difinitive semantically, its either true or false, we can utilise distributed systems for calculating hashes for especially large files. lets say for example our file is split into a million chunks or even hundreds of chunks that are huge files themselfs, distributed work can be divided for working out the proof. computer 1 can work out certain branch, and another computer can do another branch, working together to work out to verify the original file.
-4. security: when working with data thats not human inspectable, its quite hard to sustain security. merkle tree's can help software avoid i/o writes if the root hash is affected by some change, any modification forces the change of the root hash, which allows better insight at an improved computation rate.
+- **Adaptive multi-tier architecture** that automatically selects optimal encoding strategies from kilobytes to terabytes
+- **Reed-Solomon erasure coding** for self-healing without requiring original files
+- **Merkle tree integrity verification** for O(log n) corruption detection
+- **Memory-mapped I/O** for processing files larger than RAM
+- **Parallel block processing** with Rayon for multi-core throughput
 
-## how do we chunk
+---
 
-this is the order of operations when chunking a file. In the end i have chosen to go with a manifest json file. we will be storing the merkle tree structure in the manifest file.
+## Who This Is For
 
-## how we reconstruct
+- **Self-hosters** tired of monthly storage bills
+- **Data engineers** building cold storage pipelines
+- **Archivists** preserving datasets that must survive hardware failures
+- **Developers** who want to understand erasure coding at the implementation level
+- **Anyone** who thinks paying per-GB for their own data is absurd
 
-and this is the order of operation per file reconstruction
+---
 
-1. we start off with a file name
-2. then we find chunk number 1-6
-3. once we've gotten all 6 of our file chunk names, we then read those chunks 1 by 1.
-   1. while reading, we do a chunk hash check, to make sure the chunk isn't damaged
-   2. then we sanitise the chunk's header and footer
-   3. and append write it as its original file
-4. that happens one by one per chunk
-5. once all chunks are appended to the original file
-6. we do a hash check for the original file
-7. if it matches then we're all set.
+## Architecture Overview
 
-# naming convention
+### System Architecture
 
-`[originalFileName]_[ChunkNumber].[FileExtension]`
+```mermaid
+flowchart TD
+    subgraph API["API Layer"]
+        COMMIT[commit]
+        FIND[find]
+        REPAIR[repair]
+        RECONSTRUCT[reconstruct]
+    end
 
-- `originalFileName` is used to avoid unnessisary data being stored in the database
-- `ChunkID` is the short form hash. its present in the file itself as well.
-- `ChunkNumber` is the part number of the file chunk division
-- `FileExtension` is sustained original is due to not convoluting the database with data thats not nessisary.
+    subgraph CHUNKER["Chunker Module"]
+        CT[commit_tiny]
+        CS[commit_segmented]
+        CB[commit_blocked]
+        GP[generate_parity]
+    end
 
-# auxilary functionality
+    subgraph FILESTORE["FileStore Module"]
+        GA[get_all]
+        FD[find]
+        RP[repair]
+        RC[reconstruct]
+    end
 
-- fast fetch
-- encryption
-- compression
-- streaming
+    subgraph CORE["Core Components"]
+        MT[MerkleTree]
+        RS[Reed-Solomon]
+        MF[ManifestFile]
+        UT[Utils]
+    end
+
+    subgraph IO["I/O Layer"]
+        BW[BufWriter]
+        MM[memmap2]
+        RY[Rayon]
+    end
+
+    DISK[(File System)]
+
+    API --> CHUNKER
+    API --> FILESTORE
+    CHUNKER --> GP
+    GP --> RS
+    GP --> MT
+    CHUNKER --> CORE
+    FILESTORE --> CORE
+    CORE --> IO
+    IO --> DISK
+```
+
+### Commit Flow
+
+```mermaid
+flowchart TD
+    A[Input File] --> B[Memory Map]
+    B --> C[Split into Segments]
+    C --> D[Group into Blocks]
+    D --> E[Reed-Solomon Encode]
+    E --> F[Generate Parity]
+    E --> G[Build Merkle Tree]
+    F --> H[Write Parity Files]
+    C --> I[Write Segment Files]
+    G --> J[Write Manifest]
+```
+
+### Recovery Flow
+
+```mermaid
+flowchart TD
+    A[Detect Corruption] --> B[Read Available Data]
+    B --> C[Read Parity Shards]
+    C --> D[RS Decode]
+    D --> E[Reconstruct Missing]
+    E --> F[Verify Hash]
+    F --> G[Write Recovered Data]
+```
+
+### Tier Selection
+
+```mermaid
+flowchart TD
+    A[Input File] --> B{File Size}
+    B -->|under 10 MB| C[Tier 1]
+    B -->|10 MB - 1 GB| D[Tier 2]
+    B -->|1 GB - 35 GB| E[Tier 3]
+    B -->|over 35 GB| F[Tier 4]
+    
+    C --> G[RS 1,3 - No Segments]
+    D --> H[Per-Segment RS 1,3]
+    E --> I[Block RS 30,3]
+    F --> J[Hierarchical Parity]
+    
+    G --> K[300% overhead]
+    H --> L[300% overhead]
+    I --> M[10% overhead]
+    J --> N[11-15% overhead]
+```
+
+### Module Structure
+
+```mermaid
+flowchart TD
+    LIB[lib.rs] --> CHUNKER[chunker/]
+    LIB --> FILESTORE[filestore/]
+    LIB --> MERKLE[merkle_tree/]
+    LIB --> UTILS[utils.rs]
+
+    CHUNKER --> C1[mod.rs]
+    CHUNKER --> C2[commit.rs]
+    CHUNKER --> C3[generate.rs]
+    CHUNKER --> C4[io.rs]
+    CHUNKER --> C5[helpers.rs]
+
+    FILESTORE --> F1[mod.rs]
+    FILESTORE --> F2[health.rs]
+    FILESTORE --> F3[models.rs]
+
+    MERKLE --> M1[mod.rs]
+    MERKLE --> M2[node.rs]
+    MERKLE --> M3[manifest.rs]
+```
+
+### Storage Layout
+
+**Tier 1 (Tiny Files):**
+```
+archive_directory/{name}_{hash}/
+├── data.dat
+├── parity_0.dat
+├── parity_1.dat
+├── parity_2.dat
+└── manifest.json
+```
+
+**Tier 2 (Medium Files):**
+```
+archive_directory/{name}_{hash}/
+├── segments/
+│   ├── segment_0.dat
+│   ├── segment_1.dat
+│   └── ...
+├── parity/
+│   ├── segment_0_parity_0.dat
+│   ├── segment_0_parity_1.dat
+│   └── ...
+└── manifest.json
+```
+
+**Tier 3 (Large Files):**
+```
+archive_directory/{name}_{hash}/
+├── blocks/
+│   ├── block_0/
+│   │   ├── segments/
+│   │   │   ├── segment_0.dat ... segment_29.dat
+│   │   └── parity/
+│   │       ├── block_parity_0.dat
+│   │       ├── block_parity_1.dat
+│   │       └── block_parity_2.dat
+│   └── block_1/
+│       └── ...
+└── manifest.json
+```
+
+BlockFrame uses a **4-tier adaptive architecture** that selects the optimal storage strategy based on file size:
+
+| Tier       | Size Range | Strategy             | Overhead | Recovery Capability                      |
+| ---------- | ---------- | -------------------- | -------- | ---------------------------------------- |
+| **Tier 1** | <10MB      | RS(1,3)              | 300%     | Lose 2 of 3 parity, still recover        |
+| **Tier 2** | 10MB-1GB   | Per-segment RS(1,3)  | 300%     | Per-segment recovery                     |
+| **Tier 3** | 1GB-35GB   | Block-level RS(30,3) | 10%      | Lose 3 segments per block, still recover |
+| **Tier 4** | >35GB      | Hierarchical parity  | 11-15%   | Multi-level fault tolerance              |
+
+### The "Get What You Need" Innovation
+
+Traditional storage systems force you to download entire files. BlockFrame's segmented architecture enables:
+
+1. **Byte-range streaming** — Request segments 47-52 of a 10GB file without touching the rest
+2. **Partial reconstruction** — Recover a single corrupted segment without reading the entire archive
+3. **Incremental verification** — Verify integrity of specific segments in O(log n) time via Merkle proofs
+4. **Parallel recovery** — Distribute repair work across multiple cores or machines
+
+This is the foundation for a future HTTP file server that streams data with play/pause functionality, like video but for any file type.
+
+---
+
+## Performance Benchmarks
+
+_Tested on Windows 11, HDD storage (sequential write ~88 MB/s)_
+
+| Tier   | File Size | Encoding Time | Throughput |
+| ------ | --------- | ------------- | ---------- |
+| Tier 2 | 1GB       | 70.28s        | 14.23 MB/s |
+| Tier 3 | 2GB       | 76.87s        | 26.02 MB/s |
+| Tier 3 | 6GB       | 289.92s       | 20.70 MB/s |
+
+**Note:** Performance is I/O bound on HDD. Reed-Solomon encoding itself takes only 1-4 seconds per block. On NVMe SSD, expect 150-200+ MB/s throughput.
+
+---
+
+## How It Works
+
+### Commit Flow
+
+```
+Original File (6GB)
+        ↓
+   Memory-map (zero-copy read)
+        ↓
+   Segment into 32MB chunks
+        ↓
+   Group into blocks (30 segments/block)
+        ↓
+   Generate RS(30,3) parity per block
+        ↓
+   Build Merkle tree from block roots
+        ↓
+   Write manifest.json
+        ↓
+   Archive complete
+```
+
+### Recovery Flow
+
+```
+Detect missing/corrupt segment
+        ↓
+   Read remaining segments + parity
+        ↓
+   RS decode to reconstruct missing data
+        ↓
+   Verify against Merkle tree
+        ↓
+   Write recovered segment
+        ↓
+   Archive healed
+```
+
+---
+
+## Storage Structure
+
+### Tier 1 (Tiny Files)
+
+```
+archive_directory/{filename}_{hash}/
+  data.dat              # Original file
+  parity_0.dat          # Full file parity
+  parity_1.dat
+  parity_2.dat
+  manifest.json
+```
+
+### Tier 2 (Medium Files)
+
+```
+archive_directory/{filename}_{hash}/
+  segments/
+    segment_0.dat
+    segment_1.dat
+    ...
+  parity/
+    segment_0_parity_0.dat
+    segment_0_parity_1.dat
+    segment_0_parity_2.dat
+    ...
+  manifest.json
+```
+
+### Tier 3 (Large Files)
+
+```
+archive_directory/{filename}_{hash}/
+  blocks/
+    block_0/
+      segments/
+        segment_0.dat ... segment_29.dat
+      parity/
+        block_parity_0.dat
+        block_parity_1.dat
+        block_parity_2.dat
+    block_1/
+      ...
+  manifest.json
+```
+
+---
+
+## Quick Start
+
+```rust
+use std::path::Path;
+use blockframe::{chunker::Chunker, filestore::FileStore};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let chunker = Chunker::new()?;
+
+    // Commit a file (tier auto-selected based on size)
+    let result = chunker.commit(Path::new("my_dataset.bin"))?;
+    println!("Archived: {} ({} segments)", result.file_name, result.num_segments);
+
+    // Later: find and repair if needed
+    let store = FileStore::new(Path::new("archive_directory"))?;
+    let file = store.find(&"my_dataset.bin".to_string())?;
+    store.repair(&file)?;
+
+    Ok(())
+}
+```
+
+---
+
+## Core Components
+
+### [`chunker`](src/chunker/)
+
+The encoding engine. Handles file segmentation, Reed-Solomon parity generation, and Merkle tree construction. Stateless design—each commit is independent.
+
+### [`filestore`](src/filestore/)
+
+Archive management. Scans manifest files, provides file discovery, orchestrates repair and reconstruction operations.
+
+### [`merkle_tree`](src/merkle_tree/)
+
+Integrity verification. Builds hash trees from segments for O(log n) corruption detection and partial verification without full file reads.
+
+### [`utils`](src/utils.rs)
+
+Shared utilities. BLAKE3 hashing (SIMD-accelerated), dynamic segment sizing based on available memory.
+
+---
+
+## Engineering Decisions
+
+### Why Reed-Solomon?
+
+Reed-Solomon codes are the gold standard for erasure coding. They're used in CDs, DVDs, QR codes, RAID-6, and cloud storage systems. RS(k,n) can reconstruct any k missing shards from n total shards—mathematically guaranteed.
+
+### Why BLAKE3?
+
+10x faster than SHA-256 with equivalent security. SIMD-accelerated and parallelizable. The "sha256" function name is a legacy artifact—it's BLAKE3 under the hood.
+
+### Why Memory-Mapped I/O?
+
+Processing a 10GB file shouldn't require 10GB of RAM. Memory mapping lets the kernel manage page caching while we iterate through the file in segments. Zero-copy, constant memory.
+
+### Why Rust?
+
+No garbage collection pauses. Fearless concurrency with Rayon. Memory safety without runtime overhead. The performance characteristics of C with the ergonomics of modern languages.
+
+---
+
+## Roadmap
+
+- [ ] HTTP file server with byte-range streaming
+- [ ] Tier 4 hierarchical parity for 100GB+ files
+- [ ] Async I/O with tokio for network operations
+- [ ] Compression layer (LZ4/Zstd before encoding)
+- [ ] Encryption (AES-256-GCM before encoding)
+- [ ] Distributed storage across multiple machines
+- [ ] S3-compatible API frontend
+
+---
+
+## License
+
+MIT
+
+---
+
+## Acknowledgments
+
+Built with:
+
+- [`reed-solomon-simd`](https://github.com/AndersTrier/reed-solomon-simd) — SIMD-accelerated RS encoding
+- [`blake3`](https://github.com/BLAKE3-team/BLAKE3) — Cryptographic hashing
+- [`rayon`](https://github.com/rayon-rs/rayon) — Data parallelism
+- [`memmap2`](https://github.com/RazrFalcon/memmap2-rs) — Memory-mapped I/O
+- [`serde`](https://serde.rs/) — Serialization
+
+---
+
+_Engineered from first principles. No cloud dependencies. Your data, your infrastructure._

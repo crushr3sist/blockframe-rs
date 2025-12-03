@@ -32,6 +32,7 @@ pub struct ManifestFile {
     pub size: i64,
     pub time_of_creation: String,
     pub tier: u8,
+    pub segment_size: u64,
 }
 
 impl ManifestFile {

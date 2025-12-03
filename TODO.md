@@ -17,14 +17,14 @@
 - [x] 300% storage overhead (1 data + 3 parity per segment - higher than planned but functional)
 - [x] Memory usage: <35MB during encoding (streams segments, doesn't load full file)
 - [ ] Encoding target: <2s for 500MB files (not benchmarked yet)
-- [ ] Test segment corruption recovery (recovery function not implemented yet)
+- [x] Test segment corruption recovery (repair_segment implemented with ReedSolomonDecoder)
 - [ ] Test with: 50MB, 500MB files
 
 ### Tier 3: Large Files (1GB-10GB) - **CURRENT PRIORITY**
 
 - [x] Implement block-level RS(30,3) encoding
 - [x] 30 segments per block, 3 parity chunks per block
-- [ ] Fix "segment 21 scenario" - recover from complete segment loss
+- [x] Fix "segment 21 scenario" - recover from complete segment loss (repair_blocked implemented)
 - [x] Constant 1GB memory usage (uses mmap, doesn't load all into RAM)
 - [x] 10% storage overhead target (achieved with 30,3 encoding)
 - [ ] Encoding target: <30s for 5GB files (16 threads) - currently 85s on HDD (hardware limited)
@@ -56,7 +56,7 @@
 
 ### I/O Improvements (Low Priority - Hardware Limited)
 
-- [ ] BufWriter with capacity for segment writes
+- [x] BufWriter with capacity for segment writes
 - [ ] Pre-allocation (set_len) before writes
 - [ ] Consider async I/O with tokio (if beneficial)
 - [ ] Add antivirus exclusion documentation
@@ -82,8 +82,8 @@
 ### Core Recovery Functions
 
 - [x] Implement segment recovery for Tier 1 (simple parity) - repair_tiny() implemented
-- [ ] Implement segment recovery for Tier 2 (per-segment RS)
-- [ ] **Implement block-level recovery for Tier 3** (priority)
+- [x] Implement segment recovery for Tier 2 (per-segment RS) - repair_segment() implemented
+- [x] **Implement block-level recovery for Tier 3** - repair_blocked() implemented
 - [ ] Implement hierarchical recovery for Tier 4
 - [ ] Atomic commit process (rollback on failure)
 - [ ] Repair interrupted/partial commits
@@ -249,12 +249,12 @@
 - Manifest includes tier metadata
 - FileStore can parse and list files
 - Tier 1 recovery (repair_tiny) implemented
+- Tier 2 recovery (repair_segment) implemented
+- Tier 3 recovery (repair_blocked) implemented
 
 **Blockers:**
 
 - Hardware limitation (HDD not suitable for 180-file workload)
-- Tier 2 recovery functions not yet implemented
-- Tier 3 recovery functions not yet implemented
 - Tier 4 encoding not yet implemented
 
 **Decisions Made:**

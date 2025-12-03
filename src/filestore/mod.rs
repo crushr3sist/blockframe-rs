@@ -22,8 +22,7 @@ impl FileStore {
 
         let manifests = &self.all_files();
         for path in manifests.iter() {
-            let manifest: ManifestFile =
-                ManifestFile::new(path.to_str().unwrap_or("").to_string())?;
+            let manifest: ManifestFile = ManifestFile::new(path.display().to_string())?;
 
             let file_entry = File::new(
                 manifest.name,
@@ -55,7 +54,10 @@ impl FileStore {
         let files = &self.get_all()?;
 
         for file in files {
+            println!("made it into the loop");
             if file.file_name == *filename {
+                println!("condition is correct");
+
                 return Ok(file.clone().to_owned());
             }
         }
@@ -253,6 +255,18 @@ impl FileStore {
         }
 
         Ok(file_size)
+    }
+    fn hash_segment_with_parity(
+        &self,
+        segment_data: &[u8],
+        parity: &[Vec<u8>],
+    ) -> Result<String, std::io::Error> {
+        let combined: Vec<Vec<u8>> = std::iter::once(segment_data.to_vec())
+            .chain(parity.iter().cloned())
+            .collect();
+        let segment_tree = MerkleTree::new(combined)?;
+
+        Ok(segment_tree.get_root()?.to_string())
     }
 }
 

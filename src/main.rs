@@ -7,24 +7,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //SECTION - data init
     // let onegb = Path::new("files_to_commit/1gb.txt");
     // let two_gb = Path::new("files_to_commit/2gb.txt");
-    // let six_gb = Path::new("files_to_commit/6gb.txt");
+    let six_gb = Path::new("files_to_commit/6gb.txt");
     // let ten_gb = Path::new("files_to_commit/11gb.txt");
-    let shakespeare = Path::new("files_to_commit/shakes_peare.txt");
-    let image = Path::new("files_to_commit/unnamed.jpg");
-    let store_path = Path::new("archive_directory");
+    let _shakespeare = Path::new("files_to_commit/shakes_peare.txt");
+    let _image = Path::new("files_to_commit/unnamed.jpg");
+    let _store_path = Path::new("archive_directory");
 
     //SECTION - chunk files
     let chunker = Chunker::new()?;
-    // let _ = chunker.commit(onegb)?;
-    // let _ = chunker.commit(two_gb)?;
-    // let _ = chunker.commit(six_gb)?; // Profile only 6GB file
-    // let _ = chunker.commit(ten_gb)?;
-    // let _ = chunker.commit(shakespeare)?;
-    // let _ = chunker.commit(image)?;
 
-    let store = FileStore::new(store_path)?;
-    let seg_file = store.find(&"1gb.txt".to_string())?;
-    store.repair_segment(&seg_file)?;
+    // TIER 3 BENCHMARK: 6GB file
+    let start = std::time::Instant::now();
+    let _ = chunker.commit(six_gb)?;
+    let elapsed = start.elapsed();
+    println!("=== TIER 3 BENCHMARK (6GB) ===");
+    println!("Total time: {:.2?}", elapsed);
+    println!("Throughput: {:.2} MB/s", 6000.0 / elapsed.as_secs_f64());
+
+    // let store = FileStore::new(store_path)?;
+    // let seg_file = store.find(&"1gb.txt".to_string())?;
+    // store.repair_segment(&seg_file)?;
 
     //SECTION - find function for some reason
     // can be for repairs or health check

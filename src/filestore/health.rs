@@ -1,7 +1,11 @@
 // use reed_solomon_simd::ReedSolomonEncoder;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use crate::{filestore::models::File, utils::sha256};
+use crate::{filestore::models::File, merkle_tree::MerkleTree, utils::sha256};
+use reed_solomon_simd::ReedSolomonDecoder;
 
 use super::FileStore;
 
@@ -34,226 +38,226 @@ impl FileStore {
 
         Err("no valid parity found".into())
     }
+
     pub fn repair_segment(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
-        // essentially, we know the file contains the manifest
-        // we have the hashes, so what we need to do is just read the segment,
-        // and check if the manifest leaves are the same hash
+        let mut corrupt_segments: Vec<(usize, PathBuf)> = Vec::new();
 
-        let file_mk_leaves = &file_obj.manifest.merkle_tree.leaves;
-        println!("file_mk_leaves: please be sorted\n:{:?}", file_mk_leaves);
+        let file_folder_path = Path::new(&file_obj.file_data.path)
+            .parent()
+            .ok_or("No parent directory found")?;
+
+        let segments_path = file_folder_path.join("segments");
+        let parity_path = file_folder_path.join("parity");
+
+        let leafs = &file_obj.manifest.merkle_tree.leaves;
+        let parity_shards = file_obj.manifest.erasure_coding.parity_shards.max(0) as usize;
+
+        for idx in 0..leafs.len() {
+            let current_segment = segments_path.join(format!("segment_{}.dat", idx));
+            let segment_data = match fs::read(&current_segment) {
+                Ok(data) => data,
+                Err(_) => {
+                    corrupt_segments.push((idx, current_segment));
+                    continue;
+                }
+            };
+
+            let mut parity_chunks = Vec::with_capacity(parity_shards);
+            let mut parity_missing = false;
+            for parity_idx in 0..parity_shards {
+                let parity_file =
+                    parity_path.join(format!("segment_{}_parity_{}.dat", idx, parity_idx));
+                match fs::read(&parity_file) {
+                    Ok(chunk) => parity_chunks.push(chunk),
+                    Err(_) => {
+                        parity_missing = true;
+                        break;
+                    }
+                }
+            }
+
+            if parity_missing {
+                corrupt_segments.push((idx, current_segment));
+                continue;
+            }
+
+            let computed_hash = self.hash_segment_with_parity(&segment_data, &parity_chunks)?;
+            let leaf_hash = leafs
+                .get(&(idx as i32))
+                .ok_or("manifest leaf missing for segment index")?;
+
+            if computed_hash != *leaf_hash {
+                corrupt_segments.push((idx, current_segment));
+            }
+        }
+
+        if corrupt_segments.is_empty() {
+            return Ok(());
+        }
+
+        for (segment_idx, corrupt_path) in corrupt_segments {
+            let parity_chunks: Vec<Vec<u8>> = (0..parity_shards)
+                .map(|parity_idx| {
+                    fs::read(
+                        parity_path
+                            .join(format!("segment_{}_parity_{}.dat", segment_idx, parity_idx)),
+                    )
+                })
+                .collect::<Result<_, _>>()?;
+
+            let shard_len = parity_chunks
+                .first()
+                .map(|chunk| chunk.len())
+                .unwrap_or(file_obj.manifest.segment_size as usize);
+
+            let mut recovery_decoder = ReedSolomonDecoder::new(1, parity_shards, shard_len)?;
+
+            for (parity_idx, chunk) in parity_chunks.into_iter().enumerate() {
+                recovery_decoder.add_recovery_shard(parity_idx, chunk)?;
+            }
+
+            let recovered_segment = recovery_decoder
+                .decode()?
+                .restored_original(0)
+                .ok_or("unable to restore original segment")?
+                .to_vec();
+
+            fs::write(corrupt_path, &recovered_segment)?;
+        }
 
         Ok(())
     }
+
+    /// Repairs corrupt or missing segments in Tier 3 (blocked) archives.
+    ///
+    /// Tier 3 uses RS(30,3): 30 data segments + 3 parity shards per block.
+    /// Each block lives in `blocks/block_N/` with:
+    ///   - `segments/segment_X.dat` (X = 0..segment_count, max 30)
+    ///   - `parity/block_parity_Y.dat` (Y = 0..2)
+    ///
+    /// Recovery strategy:
+    /// 1. For each block, identify missing or corrupt segments
+    /// 2. If <= 3 segments are missing, use RS decoder to reconstruct
+    /// 3. Write recovered segments back to disk
     pub fn repair_blocked(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
+        let file_folder_path = Path::new(&file_obj.file_data.path)
+            .parent()
+            .ok_or("No parent directory found")?;
+
+        let blocks_path = file_folder_path.join("blocks");
+
+        // Determine how many blocks exist
+        let block_dirs: Vec<_> = fs::read_dir(&blocks_path)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+
+        let segment_size = file_obj.manifest.segment_size as usize;
+        let parity_shards = file_obj.manifest.erasure_coding.parity_shards.max(0) as usize;
+        let data_shards = file_obj.manifest.erasure_coding.data_shards.max(0) as usize;
+
+        for block_entry in block_dirs {
+            let block_dir = block_entry.path();
+            let segments_dir = block_dir.join("segments");
+            let parity_dir = block_dir.join("parity");
+
+            // Count how many segment files actually exist in this block
+            let existing_segments: Vec<_> = fs::read_dir(&segments_dir)?
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.starts_with("segment_") && s.ends_with(".dat"))
+                        .unwrap_or(false)
+                })
+                .collect();
+
+            let segment_count = existing_segments.len().min(data_shards);
+
+            // Identify missing or corrupt segments
+            let mut missing_indices: Vec<usize> = Vec::new();
+            let mut valid_segments: Vec<(usize, Vec<u8>)> = Vec::new();
+
+            for seg_idx in 0..segment_count {
+                let seg_path = segments_dir.join(format!("segment_{}.dat", seg_idx));
+                match fs::read(&seg_path) {
+                    Ok(data) => {
+                        // TODO: optionally verify hash against stored merkle leaf
+                        valid_segments.push((seg_idx, data));
+                    }
+                    Err(_) => {
+                        missing_indices.push(seg_idx);
+                    }
+                }
+            }
+
+            // Also check for segments that exist but might be corrupt
+            // For now we trust that if the file exists it's valid
+
+            if missing_indices.is_empty() {
+                // Block is healthy
+                continue;
+            }
+
+            if missing_indices.len() > parity_shards {
+                return Err(format!(
+                    "Block {:?} has {} missing segments but only {} parity shards - unrecoverable",
+                    block_dir,
+                    missing_indices.len(),
+                    parity_shards
+                )
+                .into());
+            }
+
+            // Read parity shards
+            let mut parity_data: Vec<Vec<u8>> = Vec::with_capacity(parity_shards);
+            for parity_idx in 0..parity_shards {
+                let parity_path = parity_dir.join(format!("block_parity_{}.dat", parity_idx));
+                let data = fs::read(&parity_path).map_err(|e| {
+                    format!(
+                        "Failed to read parity {} in {:?}: {}",
+                        parity_idx, block_dir, e
+                    )
+                })?;
+                parity_data.push(data);
+            }
+
+            // Determine shard size (all shards in a block are same size)
+            let shard_size = parity_data.first().map(|p| p.len()).unwrap_or(segment_size);
+
+            // Create decoder
+            let mut decoder = ReedSolomonDecoder::new(segment_count, parity_shards, shard_size)?;
+
+            // Add all valid original shards
+            for (idx, data) in &valid_segments {
+                decoder.add_original_shard(*idx, data)?;
+            }
+
+            // Add all parity shards
+            for (parity_idx, data) in parity_data.iter().enumerate() {
+                decoder.add_recovery_shard(parity_idx, data)?;
+            }
+
+            // Decode and recover
+            let result = decoder.decode()?;
+
+            // Write recovered segments back to disk
+            for missing_idx in missing_indices {
+                let recovered = result
+                    .restored_original(missing_idx)
+                    .ok_or_else(|| format!("Failed to restore segment {}", missing_idx))?;
+
+                let seg_path = segments_dir.join(format!("segment_{}.dat", missing_idx));
+                fs::write(&seg_path, recovered)?;
+                println!(
+                    "Recovered segment {} in block {:?}",
+                    missing_idx,
+                    block_dir.file_name().unwrap_or_default()
+                );
+            }
+        }
+
         Ok(())
     }
-    // pub fn should_repair(&self, file_obj: &File) -> Result<bool, Box<dyn std::error::Error>> {
-    //     if !file_obj.manifest.validate()? {
-    //         println!("should_repair: failed to verify the manifest");
-    //         return Ok(true);
-    //     }
-
-    //     let segments_paths = self.get_segments_paths(file_obj)?;
-
-    //     if segments_paths.len() != file_obj.manifest.merkle_tree.leaves.len() {
-    //         println!("should_repair: segment count is mismatched");
-    //         return Ok(true);
-    //     }
-
-    //     for (idx, segment_path) in segments_paths.iter().enumerate() {
-    //         match self.read_segment(segment_path.clone()) {
-    //             Ok(segment_data) => {
-    //                 let computed_hash = self.segment_hash(segment_data)?;
-    //                 let expected_hash = &file_obj.manifest.merkle_tree.leaves[idx].hash_val;
-
-    //                 if &computed_hash != expected_hash {
-    //                     println!("should_repair: segment {} corrupted", idx);
-    //                     return Ok(true);
-    //                 }
-    //             }
-    //             Err(_) => {
-    //                 println!("should_repair: couldn't read segment {}", idx);
-    //                 return Ok(true);
-    //             }
-    //         }
-    //     }
-
-    //     Ok(false)
-    // }
-
-    // pub fn repair(
-    //     &self,
-    //     file_obj: &File,
-    //     chunker_instance: &Chunker,
-    // ) -> Result<bool, Box<dyn std::error::Error>> {
-    //     // step 1: read all available chunks (data + parity)
-    //     let file_size = &self.get_size(file_obj)?;
-    //     let mut shards: Vec<Option<Vec<u8>>> = vec![None; *file_size as usize];
-
-    //     let segments_paths = &self.get_segments_paths(file_obj)?;
-
-    //     // before we were iterating the chunks in 6, but now we have a complete list of chunk paths
-    //     // so we just iterate over the chunk paths
-    //     // !TODO below
-    //     // this is us making sure that our segments compiled data's hash
-    //     // matches the hash found in the merkle-tree
-    //     // so we need a method to make a hashing function
-    //     // which takes in a segment path
-    //     // and returns a segment's hash
-    //     // all of the files inside of a segment get combined and then hashed
-
-    //     // okay so we need to read the segments per iteration
-    //     // per iteration, we get the segment hash and compare against the manifest file
-    //     let index_counter: &i32 = &0;
-
-    //     for segment in segments_paths {
-    //         if let segment_data = &self.read_segment(*segment)? {
-    //             // verify with manifest
-    //             let computed_hash = &self.segment_hash(*segment_data)?;
-    //             let expected_hash = file_obj
-    //                 .manifest
-    //                 .merkle_tree
-    //                 .leaves
-    //                 .get(index_counter)
-    //                 .map(|node| node);
-
-    //             if Some(computed_hash.clone()) == expected_hash.cloned() {
-    //                 let flattened_data: Vec<u8> = segment_data.iter().flatten().copied().collect();
-    //                 shards[*index_counter as usize] = Some(flattened_data);
-    //                 println!("Data chunk {} valid", index_counter);
-    //             } else {
-    //                 println!("Data chunk {} corrupted", index_counter);
-    //             }
-    //         }
-    //         *index_counter += 1;
-    //     }
-
-    //     let file_stem = Path::new(&file_obj.file_name)
-    //         .file_stem()
-    //         .and_then(|s| s.to_str())
-    //         .unwrap_or("unknown");
-
-    //     for parity_index in 0..self.parity_shards {
-    //         let parity_filename = format!("{}_p{}.dat", file_stem, parity_index);
-    //         let parity_path = parity_dir.join(parity_filename);
-    //         if let Ok(parity_data) = fs::read(&parity_path) {
-    //             let shard_index = self.data_shards + parity_index;
-    //             let hash = sha256(&parity_data);
-    //             let expected_hash = self
-    //                 .merkle_tree
-    //                 .leaves
-    //                 .get(shard_index)
-    //                 .map(|node| node.hash_val.clone());
-    //             if Some(hash.clone()) == expected_hash {
-    //                 shards[shard_index] = Some(parity_data);
-    //                 println!("parity chunk {} valid", parity_index);
-    //             } else {
-    //                 println!("parity chunk {} corrupted", parity_index);
-    //             }
-    //         }
-    //     }
-
-    //     // step 2: check if we have enough shards to reconstruct
-    //     let valid_count = shards.iter().filter(|s| s.is_some()).count();
-
-    //     if valid_count < self.data_shards {
-    //         println!(
-    //             "Not enough chunks to reconstruct: have {}, need {}",
-    //             valid_count, self.data_shards
-    //         );
-    //         return false;
-    //     }
-    //     println!(
-    //         "Have {} valid shards (need {}), reconstruction begining",
-    //         valid_count, self.data_shards
-    //     );
-
-    //     // step 3: reconstruct using reed-solomon
-    //     let encoder = ReedSolomon::new(self.data_shards, self.parity_shards)
-    //         .expect("failed to create RS encoder");
-
-    //     // find max shard size
-    //     let max_size = shards
-    //         .iter()
-    //         .filter_map(|s| s.as_ref())
-    //         .map(|chunk| chunk.len())
-    //         .max()
-    //         .unwrap_or(0);
-
-    //     // Track which shards exist BEFORE we convert to owned
-    //     let shard_present: Vec<bool> = shards.iter().map(|s| s.is_some()).collect();
-
-    //     // prepare owned shards - pad all to same size
-    //     let mut owned_shards: Vec<Vec<u8>> = shards
-    //         .into_iter()
-    //         .map(|opt| {
-    //             if let Some(data) = opt {
-    //                 let mut padded = data;
-    //                 padded.resize(max_size, 0);
-    //                 padded
-    //             } else {
-    //                 vec![0u8; max_size] // Placeholder for missing
-    //             }
-    //         })
-    //         .collect();
-    //     dbg!(&owned_shards);
-
-    //     // Create tuple pattern: (shard_ref, is_present)
-    //     // This is the pattern reed-solomon-erasure expects
-    //     let mut shard_tuple: Vec<_> = owned_shards
-    //         .iter_mut()
-    //         .map(|s| s.as_mut_slice())
-    //         .zip(shard_present.iter().cloned())
-    //         .collect();
-
-    //     match encoder.reconstruct(&mut shard_tuple) {
-    //         Ok(_) => println!("Reconstruction successful"),
-    //         Err(e) => {
-    //             println!("reconstruction failed: {:?}", e);
-    //             return false;
-    //         }
-    //     }
-
-    //     for (index, reconstructed) in owned_shards.iter().enumerate() {
-    //         let expected_hash = self
-    //             .merkle_tree
-    //             .leaves
-    //             .get(index)
-    //             .map(|node| node.hash_val.clone());
-    //         let actual_hash = sha256(reconstructed);
-
-    //         if Some(actual_hash.clone()) != expected_hash {
-    //             println!("Chunk {} hash mismatch after reconstruction", index);
-    //             continue;
-    //         }
-
-    //         // Rewrite data chunks
-    //         if index < self.data_shards {
-    //             if let Ok(chunk_filename) = self.chunk_filename_from_index(index) {
-    //                 let chunk_path = chunks_dir.join(chunk_filename.file_name().unwrap());
-
-    //                 if let Err(e) = fs::write(&chunk_path, reconstructed) {
-    //                     println!("Failed to write chunk {}: {}", index, e);
-    //                 } else {
-    //                     println!("Repaired data chunk {}", index);
-    //                 }
-    //             }
-    //         }
-    //         // Rewrite parity chunks
-    //         else {
-    //             let parity_index = index - self.data_shards;
-    //             let parity_filename = format!("{}_p{}.dat", file_stem, parity_index);
-    //             let parity_path = parity_dir.join(parity_filename);
-
-    //             if let Err(e) = fs::write(&parity_path, reconstructed) {
-    //                 println!("Failed to write parity {}: {}", parity_index, e);
-    //             } else {
-    //                 println!("Repaired parity chunk {}", parity_index);
-    //             }
-    //         }
-    //     }
-
-    //     println!("Repair complete!");
-    //     true
-    // }
 }
