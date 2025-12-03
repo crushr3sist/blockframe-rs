@@ -14,14 +14,14 @@ Works on anything from a 5MB config file to a 30GB dataset. Scales storage overh
 
 ```
 +------------------------------------------------------------------------------+
-|                                PUBLIC API                                     |
+|                                PUBLIC API                                    |
 |                                                                              |
 |        commit()           find()           repair()         reconstruct()    |
 +------------------------------------------------------------------------------+
                                     |
                                     v
 +------------------------------------------------------------------------------+
-|                            PROCESSING MODULES                                 |
+|                            PROCESSING MODULES                                |
 |                                                                              |
 |   +---------------------------+        +---------------------------+         |
 |   |         CHUNKER           |        |        FILESTORE          |         |
@@ -35,7 +35,7 @@ Works on anything from a 5MB config file to a 30GB dataset. Scales storage overh
                                     |
                                     v
 +------------------------------------------------------------------------------+
-|                            CORE COMPONENTS                                    |
+|                            CORE COMPONENTS                                   |
 |                                                                              |
 |   +--------------+  +--------------+  +--------------+  +--------------+     |
 |   | REED-SOLOMON |  | MERKLE TREE  |  |   MANIFEST   |  |    UTILS     |     |
@@ -48,7 +48,7 @@ Works on anything from a 5MB config file to a 30GB dataset. Scales storage overh
                                     |
                                     v
 +------------------------------------------------------------------------------+
-|                               I/O LAYER                                       |
+|                               I/O LAYER                                      |
 |                                                                              |
 |        +--------------+      +--------------+      +--------------+          |
 |        |  BufWriter   |      |   memmap2    |      |    Rayon     |          |
@@ -60,7 +60,7 @@ Works on anything from a 5MB config file to a 30GB dataset. Scales storage overh
                                     |
                                     v
 +------------------------------------------------------------------------------+
-|                              FILE SYSTEM                                      |
+|                              FILE SYSTEM                                     |
 |                                                                              |
 |   archive_directory/                                                         |
 |   +-- {filename}_{hash}/                                                     |
@@ -73,12 +73,12 @@ Works on anything from a 5MB config file to a 30GB dataset. Scales storage overh
 
 ### Tiers
 
-| Tier | File Size | Encoding | Overhead | What it means |
-|------|-----------|----------|----------|---------------|
-| 1 | < 10 MB | RS(1,3) whole file | 300% | Lose 2 of 3 copies, still recover |
-| 2 | 10 MB – 1 GB | RS(1,3) per segment | 300% | Each segment recovers independently |
-| 3 | 1 – 35 GB | RS(30,3) per block | 10% | Lose any 3 of 33 shards per block |
-| 4 | > 35 GB | Hierarchical | ~12% | Coming soon |
+| Tier | File Size    | Encoding            | Overhead | What it means                       |
+| ---- | ------------ | ------------------- | -------- | ----------------------------------- |
+| 1    | < 10 MB      | RS(1,3) whole file  | 300%     | Lose 2 of 3 copies, still recover   |
+| 2    | 10 MB – 1 GB | RS(1,3) per segment | 300%     | Each segment recovers independently |
+| 3    | 1 – 35 GB    | RS(30,3) per block  | 10%      | Lose any 3 of 33 shards per block   |
+| 4    | > 35 GB      | Hierarchical        | ~12%     | Coming soon                         |
 
 Tier is picked automatically. Small files get maximum redundancy, large files get efficient block-level encoding.
 
@@ -88,11 +88,11 @@ Tier is picked automatically. Small files get maximum redundancy, large files ge
 
 On a mechanical HDD (88 MB/s sequential):
 
-| Size | Tier | Time | Speed |
-|------|------|------|-------|
-| 1 GB | 2 | 70s | 14 MB/s |
-| 2 GB | 3 | 77s | 26 MB/s |
-| 6 GB | 3 | 290s | 21 MB/s |
+| Size | Tier | Time | Speed   |
+| ---- | ---- | ---- | ------- |
+| 1 GB | 2    | 70s  | 14 MB/s |
+| 2 GB | 3    | 77s  | 26 MB/s |
+| 6 GB | 3    | 290s | 21 MB/s |
 
 RS encoding itself is fast (1-4 sec per block). The rest is disk I/O. On NVMe you'll see 150+ MB/s.
 
