@@ -39,124 +39,202 @@ This isn't a wrapper around S3 or a database abstraction. This is a ground-up im
 ### System Architecture
 
 ```mermaid
-flowchart TD
-    subgraph API["API Layer"]
-        COMMIT[commit]
-        FIND[find]
-        REPAIR[repair]
-        RECONSTRUCT[reconstruct]
+flowchart TB
+    subgraph Client["Client Layer"]
+        direction LR
+        C1["commit()"]
+        C2["find()"]
+        C3["repair()"]
+        C4["reconstruct()"]
     end
 
-    subgraph CHUNKER["Chunker Module"]
-        CT[commit_tiny]
-        CS[commit_segmented]
-        CB[commit_blocked]
-        GP[generate_parity]
+    subgraph Modules["Processing Modules"]
+        direction LR
+        subgraph Chunker["Chunker"]
+            direction TB
+            CH1["commit_tiny"]
+            CH2["commit_segmented"]
+            CH3["commit_blocked"]
+        end
+        subgraph FileStore["FileStore"]
+            direction TB
+            FS1["get_all"]
+            FS2["find"]
+            FS3["repair"]
+        end
     end
 
-    subgraph FILESTORE["FileStore Module"]
-        GA[get_all]
-        FD[find]
-        RP[repair]
-        RC[reconstruct]
+    subgraph Core["Core Components"]
+        direction LR
+        CORE1["Reed-Solomon"]
+        CORE2["MerkleTree"]
+        CORE3["ManifestFile"]
+        CORE4["Utils"]
     end
 
-    subgraph CORE["Core Components"]
-        MT[MerkleTree]
-        RS[Reed-Solomon]
-        MF[ManifestFile]
-        UT[Utils]
+    subgraph Storage["Storage Layer"]
+        direction LR
+        ST1["BufWriter"]
+        ST2["memmap2"]
+        ST3["Rayon"]
     end
 
-    subgraph IO["I/O Layer"]
-        BW[BufWriter]
-        MM[memmap2]
-        RY[Rayon]
+    subgraph Disk["File System"]
+        direction LR
+        D1[("segments/")]
+        D2[("parity/")]
+        D3[("manifest.json")]
     end
 
-    DISK[(File System)]
-
-    API --> CHUNKER
-    API --> FILESTORE
-    CHUNKER --> GP
-    GP --> RS
-    GP --> MT
-    CHUNKER --> CORE
-    FILESTORE --> CORE
-    CORE --> IO
-    IO --> DISK
+    Client --> Modules
+    Modules --> Core
+    Core --> Storage
+    Storage --> Disk
 ```
 
-### Commit Flow
+### Data Flow: Commit
 
 ```mermaid
-flowchart TD
-    A[Input File] --> B[Memory Map]
-    B --> C[Split into Segments]
-    C --> D[Group into Blocks]
-    D --> E[Reed-Solomon Encode]
-    E --> F[Generate Parity]
-    E --> G[Build Merkle Tree]
-    F --> H[Write Parity Files]
-    C --> I[Write Segment Files]
-    G --> J[Write Manifest]
+flowchart LR
+    subgraph Input
+        A["Original File"]
+    end
+
+    subgraph Process["Processing"]
+        B["Memory Map"] --> C["Segmentation"]
+        C --> D["Block Grouping"]
+    end
+
+    subgraph Encode["Encoding"]
+        E["RS Parity"]
+        F["Merkle Tree"]
+    end
+
+    subgraph Output
+        G["segments/*.dat"]
+        H["parity/*.dat"]
+        I["manifest.json"]
+    end
+
+    Input --> Process
+    D --> E
+    D --> F
+    E --> H
+    C --> G
+    F --> I
 ```
 
-### Recovery Flow
+### Data Flow: Recovery
 
 ```mermaid
-flowchart TD
-    A[Detect Corruption] --> B[Read Available Data]
-    B --> C[Read Parity Shards]
-    C --> D[RS Decode]
-    D --> E[Reconstruct Missing]
-    E --> F[Verify Hash]
-    F --> G[Write Recovered Data]
+flowchart LR
+    subgraph Detect
+        A["Hash Mismatch"]
+    end
+
+    subgraph Read
+        B["Available Segments"]
+        C["Parity Shards"]
+    end
+
+    subgraph Decode
+        D["RS Decoder"]
+    end
+
+    subgraph Verify
+        E["Merkle Proof"]
+    end
+
+    subgraph Write
+        F["Restored Segment"]
+    end
+
+    Detect --> Read
+    B --> D
+    C --> D
+    D --> Verify
+    Verify --> Write
 ```
 
 ### Tier Selection
 
 ```mermaid
-flowchart TD
-    A[Input File] --> B{File Size}
-    B -->|under 10 MB| C[Tier 1]
-    B -->|10 MB - 1 GB| D[Tier 2]
-    B -->|1 GB - 35 GB| E[Tier 3]
-    B -->|over 35 GB| F[Tier 4]
-    
-    C --> G[RS 1,3 - No Segments]
-    D --> H[Per-Segment RS 1,3]
-    E --> I[Block RS 30,3]
-    F --> J[Hierarchical Parity]
-    
-    G --> K[300% overhead]
-    H --> L[300% overhead]
-    I --> M[10% overhead]
-    J --> N[11-15% overhead]
+flowchart TB
+    subgraph Input
+        A["Input File"]
+    end
+
+    subgraph Decision
+        B{"Size Check"}
+    end
+
+    subgraph Tiers
+        direction LR
+        T1["Tier 1\n< 10MB"]
+        T2["Tier 2\n10MB-1GB"]
+        T3["Tier 3\n1-35GB"]
+        T4["Tier 4\n> 35GB"]
+    end
+
+    subgraph Strategy
+        direction LR
+        S1["RS(1,3)\nNo segments"]
+        S2["Per-segment\nRS(1,3)"]
+        S3["Block\nRS(30,3)"]
+        S4["Hierarchical\nparity"]
+    end
+
+    subgraph Overhead
+        direction LR
+        O1["300%"]
+        O2["300%"]
+        O3["10%"]
+        O4["11-15%"]
+    end
+
+    Input --> Decision
+    Decision --> T1
+    Decision --> T2
+    Decision --> T3
+    Decision --> T4
+    T1 --> S1 --> O1
+    T2 --> S2 --> O2
+    T3 --> S3 --> O3
+    T4 --> S4 --> O4
 ```
 
-### Module Structure
+### Module Organization
 
 ```mermaid
-flowchart TD
-    LIB[lib.rs] --> CHUNKER[chunker/]
-    LIB --> FILESTORE[filestore/]
-    LIB --> MERKLE[merkle_tree/]
-    LIB --> UTILS[utils.rs]
+flowchart TB
+    subgraph Library["lib.rs"]
+        LIB["pub mod exports"]
+    end
 
-    CHUNKER --> C1[mod.rs]
-    CHUNKER --> C2[commit.rs]
-    CHUNKER --> C3[generate.rs]
-    CHUNKER --> C4[io.rs]
-    CHUNKER --> C5[helpers.rs]
+    subgraph Modules
+        direction LR
+        subgraph chunker["chunker/"]
+            C1["commit.rs"]
+            C2["generate.rs"]
+            C3["io.rs"]
+            C4["helpers.rs"]
+        end
+        subgraph filestore["filestore/"]
+            F1["health.rs"]
+            F2["models.rs"]
+        end
+        subgraph merkle["merkle_tree/"]
+            M1["node.rs"]
+            M2["manifest.rs"]
+        end
+    end
 
-    FILESTORE --> F1[mod.rs]
-    FILESTORE --> F2[health.rs]
-    FILESTORE --> F3[models.rs]
+    subgraph Shared["Shared"]
+        U["utils.rs"]
+    end
 
-    MERKLE --> M1[mod.rs]
-    MERKLE --> M2[node.rs]
-    MERKLE --> M3[manifest.rs]
+    Library --> Modules
+    Modules --> Shared
 ```
 
 ### Storage Layout
