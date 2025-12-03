@@ -1,102 +1,100 @@
 # BlockFrame
 
-Erasure-coded archival storage in Rust.
+**Your files, immortal.**
 
-BlockFrame splits files into segments, generates Reed-Solomon parity shards, and stores everything with a Merkle tree manifest. If segments get corrupted or lost, the system reconstructs them from parity data without needing the original file.
+Hard drives fail. Bits rot. Cloud providers disappear. BlockFrame doesn't care—it encodes your data so that even when pieces go missing, you get everything back. No backups needed, no original file required.
 
-The design scales from small files to multi-gigabyte datasets using a tiered encoding strategy that balances storage overhead against recovery guarantees.
+This is erasure-coded storage: split files into segments, generate Reed-Solomon parity, and reconstruct anything that gets lost. The same math that keeps your data safe on enterprise storage arrays, running on your own hardware.
+
+Works on anything from a 5MB config file to a 30GB dataset. Scales storage overhead from 10% to 300% depending on how paranoid you want to be.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                                   PUBLIC API                                     │
-│                                                                                  │
-│         commit()            find()            repair()          reconstruct()    │
-└────────────┬─────────────────────────────────────────────────────────────────────┘
-             │
-             ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                              PROCESSING MODULES                                  │
-│                                                                                  │
-│  ┌─────────────────────────────────┐      ┌─────────────────────────────────┐    │
-│  │           CHUNKER               │      │          FILESTORE              │    │
-│  │                                 │      │                                 │    │
-│  │  • commit_tiny      (Tier 1)    │      │  • get_all                      │    │
-│  │  • commit_segmented (Tier 2)    │      │  • find                         │    │
-│  │  • commit_blocked   (Tier 3)    │      │  • repair                       │    │
-│  │  • generate_parity              │      │  • reconstruct                  │    │
-│  │                                 │      │                                 │    │
-│  └─────────────────────────────────┘      └─────────────────────────────────┘    │
-└────────────┬─────────────────────────────────────────────────────────────────────┘
-             │
-             ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                              CORE COMPONENTS                                     │
-│                                                                                  │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌────────────────┐     │
-│  │ REED-SOLOMON  │  │  MERKLE TREE  │  │   MANIFEST    │  │     UTILS      │     │
-│  │               │  │               │  │               │  │                │     │
-│  │ • Encoder     │  │ • build_tree  │  │ • parse       │  │ • blake3 hash  │     │
-│  │ • Decoder     │  │ • get_proof   │  │ • validate    │  │ • segment_size │     │
-│  │ • SIMD accel  │  │ • verify      │  │ • serialize   │  │                │     │
-│  │               │  │               │  │               │  │                │     │
-│  └───────────────┘  └───────────────┘  └───────────────┘  └────────────────┘     │
-└────────────┬─────────────────────────────────────────────────────────────────────┘
-             │
-             ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                                I/O LAYER                                         │
-│                                                                                  │
-│       ┌───────────────┐       ┌───────────────┐       ┌───────────────┐          │
-│       │   BufWriter   │       │    memmap2    │       │     Rayon     │          │
-│       │               │       │               │       │               │          │
-│       │ Buffered disk │       │  Zero-copy    │       │   Parallel    │          │
-│       │    writes     │       │  file reads   │       │  processing   │          │
-│       │               │       │               │       │               │          │
-│       └───────────────┘       └───────────────┘       └───────────────┘          │
-└────────────┬─────────────────────────────────────────────────────────────────────┘
-             │
-             ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                               FILE SYSTEM                                        │
-│                                                                                  │
-│    archive_directory/                                                            │
-│    └── {filename}_{hash}/                                                        │
-│        ├── manifest.json         ← Merkle root, segment hashes, metadata         │
-│        ├── segments/             ← Original data split into 32MB chunks          │
-│        │   └── segment_N.dat                                                     │
-│        ├── parity/               ← Reed-Solomon parity shards                    │
-│        │   └── parity_N.dat                                                      │
-│        └── blocks/               ← Tier 3: groups of 30 segments                 │
-│            └── block_N/                                                          │
-└──────────────────────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------------------+
+|                                PUBLIC API                                     |
+|                                                                              |
+|        commit()           find()           repair()         reconstruct()    |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                            PROCESSING MODULES                                 |
+|                                                                              |
+|   +---------------------------+        +---------------------------+         |
+|   |         CHUNKER           |        |        FILESTORE          |         |
+|   |                           |        |                           |         |
+|   |   commit_tiny   (Tier 1)  |        |   get_all                 |         |
+|   |   commit_segmented (T2)   |        |   find                    |         |
+|   |   commit_blocked (Tier 3) |        |   repair                  |         |
+|   |   generate_parity         |        |   reconstruct             |         |
+|   +---------------------------+        +---------------------------+         |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                            CORE COMPONENTS                                    |
+|                                                                              |
+|   +--------------+  +--------------+  +--------------+  +--------------+     |
+|   | REED-SOLOMON |  | MERKLE TREE  |  |   MANIFEST   |  |    UTILS     |     |
+|   |              |  |              |  |              |  |              |     |
+|   | Encoder      |  | build_tree   |  | parse        |  | blake3 hash  |     |
+|   | Decoder      |  | get_proof    |  | validate     |  | segment_size |     |
+|   | SIMD accel   |  | verify       |  | serialize    |  |              |     |
+|   +--------------+  +--------------+  +--------------+  +--------------+     |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                               I/O LAYER                                       |
+|                                                                              |
+|        +--------------+      +--------------+      +--------------+          |
+|        |  BufWriter   |      |   memmap2    |      |    Rayon     |          |
+|        |              |      |              |      |              |          |
+|        | buffered     |      | zero-copy    |      | parallel     |          |
+|        | disk writes  |      | file reads   |      | processing   |          |
+|        +--------------+      +--------------+      +--------------+          |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                              FILE SYSTEM                                      |
+|                                                                              |
+|   archive_directory/                                                         |
+|   +-- {filename}_{hash}/                                                     |
+|       +-- manifest.json      <- merkle root, hashes, metadata                |
+|       +-- segments/          <- original data in 32MB chunks                 |
+|       +-- parity/            <- reed-solomon parity shards                   |
+|       +-- blocks/            <- tier 3: groups of 30 segments                |
++------------------------------------------------------------------------------+
 ```
 
 ### Tiers
 
-| Tier | File Size | Encoding | Overhead | Notes |
-|------|-----------|----------|----------|-------|
-| 1 | < 10 MB | RS(1,3) on whole file | 300% | Simple, high redundancy |
-| 2 | 10 MB – 1 GB | RS(1,3) per segment | 300% | Independent segment recovery |
-| 3 | 1 – 35 GB | RS(30,3) per block | 10% | 30 segments + 3 parity per block |
-| 4 | > 35 GB | Hierarchical | 11-15% | Planned |
+| Tier | File Size | Encoding | Overhead | What it means |
+|------|-----------|----------|----------|---------------|
+| 1 | < 10 MB | RS(1,3) whole file | 300% | Lose 2 of 3 copies, still recover |
+| 2 | 10 MB – 1 GB | RS(1,3) per segment | 300% | Each segment recovers independently |
+| 3 | 1 – 35 GB | RS(30,3) per block | 10% | Lose any 3 of 33 shards per block |
+| 4 | > 35 GB | Hierarchical | ~12% | Coming soon |
 
-The tier is selected automatically based on file size. Smaller files use higher redundancy (simpler recovery), larger files use block-level encoding for storage efficiency.
+Tier is picked automatically. Small files get maximum redundancy, large files get efficient block-level encoding.
 
 ---
 
 ## Benchmarks
 
-Tested on Windows 11 with a mechanical HDD (~88 MB/s sequential write):
+On a mechanical HDD (88 MB/s sequential):
 
-| File Size | Tier | Time | Throughput |
-|-----------|------|------|------------|
+| Size | Tier | Time | Speed |
+|------|------|------|-------|
 | 1 GB | 2 | 70s | 14 MB/s |
 | 2 GB | 3 | 77s | 26 MB/s |
 | 6 GB | 3 | 290s | 21 MB/s |
+
+RS encoding itself is fast (1-4 sec per block). The rest is disk I/O. On NVMe you'll see 150+ MB/s.
 
 Performance is I/O bound. RS encoding takes 1-4 seconds per block; the rest is disk write time. On NVMe, expect 150+ MB/s.
 
