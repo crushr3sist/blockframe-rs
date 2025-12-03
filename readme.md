@@ -1,12 +1,34 @@
 # BlockFrame
 
-**Your files, immortal.**
+A self-hosted, erasure-coded storage engine designed to give data ownership back to the people who create it.
 
-Hard drives fail. Bits rot. Cloud providers disappear. BlockFrame doesn't care—it encodes your data so that even when pieces go missing, you get everything back. No backups needed, no original file required.
+BlockFrame implements Reed-Solomon erasure coding with Merkle tree verification to provide fault-tolerant storage that can recover from disk failures, bit rot, and data corruption—without requiring backups or access to the original files. The system segments files into chunks, generates parity shards, and reconstructs missing data on demand.
 
-This is erasure-coded storage: split files into segments, generate Reed-Solomon parity, and reconstruct anything that gets lost. The same math that keeps your data safe on enterprise storage arrays, running on your own hardware.
+The architecture is intentionally minimal. BlockFrame runs on a Raspberry Pi or a rack-mounted server with identical behaviour. There are no external dependencies, no databases, no container orchestration requirements. A single binary reads files, encodes them, and writes segments to disk. Recovery works offline.
 
-Works on anything from a 5MB config file to a 30GB dataset. Scales storage overhead from 10% to 300% depending on how paranoid you want to be.
+## Why Not MinIO?
+
+MinIO is an excellent S3-compatible object store, but it solves a different problem. MinIO provides an API layer and distributed coordination. BlockFrame provides the underlying storage mathematics.
+
+| Concern | MinIO | BlockFrame |
+|---------|-------|------------|
+| **Purpose** | S3-compatible API gateway | Erasure-coded storage engine |
+| **Minimum deployment** | 4 nodes for erasure coding | Single machine |
+| **Recovery model** | Cluster consensus | Mathematical reconstruction |
+| **Data format** | Opaque object store | Inspectable segments + manifest |
+| **Offline operation** | Requires cluster quorum | Fully offline capable |
+| **Resource footprint** | ~500MB+ RAM, JVM/Go runtime | ~10MB RAM, single static binary |
+
+MinIO asks: *how do I serve objects across a cluster?*
+BlockFrame asks: *how do I encode data so it survives hardware failure?*
+
+They are complementary. BlockFrame could serve as MinIO's storage backend, or replace it entirely for use cases that don't require S3 compatibility.
+
+## Scope
+
+BlockFrame is the storage layer for a larger vision: a self-hosted platform where any file becomes streamable with intelligent seeking, where clients fetch only the segments they need rather than downloading entire files, and where data sovereignty is the default rather than the exception.
+
+The current implementation handles file ingestion, parity generation, and self-healing reconstruction. Future work includes an HTTP streaming server with byte-range support, a `blockframe://` protocol handler for native application integration, and distributed segment replication.
 
 ---
 
