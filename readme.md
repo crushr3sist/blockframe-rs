@@ -84,19 +84,37 @@ Tier is picked automatically. Small files get maximum redundancy, large files ge
 
 ---
 
-## Benchmarks
+## Performance
 
-On a mechanical HDD (88 MB/s sequential):
+### Test Hardware
 
-| Size | Tier | Time | Speed   |
-| ---- | ---- | ---- | ------- |
-| 1 GB | 2    | 70s  | 14 MB/s |
-| 2 GB | 3    | 77s  | 26 MB/s |
-| 6 GB | 3    | 290s | 21 MB/s |
+- **CPU:** AMD Ryzen 5 5600X (6 cores, 12 threads)
+- **RAM:** 16 GB DDR4-3200
+- **Storage:** Seagate Barracuda 2TB HDD (5400 RPM, ~88 MB/s sequential)
+- **OS:** Windows 11
 
-RS encoding itself is fast (1-4 sec per block). The rest is disk I/O. On NVMe you'll see 150+ MB/s.
+### Measured Results
 
-Performance is I/O bound. RS encoding takes 1-4 seconds per block; the rest is disk write time. On NVMe, expect 150+ MB/s.
+| File | Tier | Total Time | Throughput | RS Encoding Time |
+|------|------|------------|------------|------------------|
+| 1 GB | 2 | 70 sec | 14 MB/s | ~2 sec |
+| 2 GB | 3 | 77 sec | 26 MB/s | ~3 sec |
+| 6 GB | 3 | 290 sec | 21 MB/s | ~8 sec |
+
+The bottleneck is disk I/O. Reed-Solomon encoding runs at ~1 GB/s in memory thanks to SIMD—the actual math takes 1-4 seconds per gigabyte. Everything else is waiting for the disk.
+
+### Projected Performance
+
+| Storage Type | Sequential Write | Expected Throughput | 10 GB Archive Time |
+|--------------|------------------|---------------------|-------------------|
+| 5400 RPM HDD | 80-100 MB/s | 15-25 MB/s | ~7 min |
+| 7200 RPM HDD | 120-150 MB/s | 30-40 MB/s | ~4 min |
+| SATA SSD | 400-500 MB/s | 100-150 MB/s | ~80 sec |
+| NVMe SSD | 2000-3500 MB/s | 300-500 MB/s | ~25 sec |
+| Cloud (gp3 EBS) | 125-1000 MB/s | 40-200 MB/s | ~1-3 min |
+| Cloud (io2 EBS) | 4000+ MB/s | 400-600 MB/s | ~20 sec |
+
+Throughput is lower than raw disk speed because we're writing multiple files (segments + parity) rather than one sequential stream, and there's Merkle tree computation overhead. On fast storage, CPU becomes the limiter—Rayon parallelization helps, but there's room for async I/O improvements.
 
 ---
 
