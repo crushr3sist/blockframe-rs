@@ -34,250 +34,79 @@ This isn't a wrapper around S3 or a database abstraction. This is a ground-up im
 
 ---
 
-## Architecture Overview
+## Architecture
 
-### System Architecture
-
-```mermaid
-flowchart TB
-    subgraph Client["Client Layer"]
-        direction LR
-        C1["commit()"]
-        C2["find()"]
-        C3["repair()"]
-        C4["reconstruct()"]
-    end
-
-    subgraph Modules["Processing Modules"]
-        direction LR
-        subgraph Chunker["Chunker"]
-            direction TB
-            CH1["commit_tiny"]
-            CH2["commit_segmented"]
-            CH3["commit_blocked"]
-        end
-        subgraph FileStore["FileStore"]
-            direction TB
-            FS1["get_all"]
-            FS2["find"]
-            FS3["repair"]
-        end
-    end
-
-    subgraph Core["Core Components"]
-        direction LR
-        CORE1["Reed-Solomon"]
-        CORE2["MerkleTree"]
-        CORE3["ManifestFile"]
-        CORE4["Utils"]
-    end
-
-    subgraph Storage["Storage Layer"]
-        direction LR
-        ST1["BufWriter"]
-        ST2["memmap2"]
-        ST3["Rayon"]
-    end
-
-    subgraph Disk["File System"]
-        direction LR
-        D1[("segments/")]
-        D2[("parity/")]
-        D3[("manifest.json")]
-    end
-
-    Client --> Modules
-    Modules --> Core
-    Core --> Storage
-    Storage --> Disk
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                                   PUBLIC API                                      │
+│                                                                                   │
+│         commit()            find()            repair()          reconstruct()     │
+└────────────┬─────────────────────────────────────────────────────────────────────┘
+             │
+             ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                              PROCESSING MODULES                                   │
+│                                                                                   │
+│  ┌─────────────────────────────────┐      ┌─────────────────────────────────┐    │
+│  │           CHUNKER               │      │          FILESTORE              │    │
+│  │                                 │      │                                 │    │
+│  │  • commit_tiny     (Tier 1)     │      │  • get_all                      │    │
+│  │  • commit_segmented (Tier 2)    │      │  • find                         │    │
+│  │  • commit_blocked  (Tier 3)     │      │  • repair                       │    │
+│  │  • generate_parity              │      │  • reconstruct                  │    │
+│  │                                 │      │                                 │    │
+│  └─────────────────────────────────┘      └─────────────────────────────────┘    │
+└────────────┬─────────────────────────────────────────────────────────────────────┘
+             │
+             ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                              CORE COMPONENTS                                      │
+│                                                                                   │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐      │
+│  │ REED-SOLOMON  │  │  MERKLE TREE  │  │   MANIFEST    │  │     UTILS     │      │
+│  │               │  │               │  │               │  │               │      │
+│  │ • Encoder     │  │ • build_tree  │  │ • parse       │  │ • blake3 hash │      │
+│  │ • Decoder     │  │ • get_proof   │  │ • validate    │  │ • segment_size│      │
+│  │ • SIMD accel  │  │ • verify      │  │ • serialize   │  │               │      │
+│  └───────────────┘  └───────────────┘  └───────────────┘  └───────────────┘      │
+└────────────┬─────────────────────────────────────────────────────────────────────┘
+             │
+             ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                                I/O LAYER                                          │
+│                                                                                   │
+│       ┌───────────────┐       ┌───────────────┐       ┌───────────────┐          │
+│       │   BufWriter   │       │    memmap2    │       │     Rayon     │          │
+│       │               │       │               │       │               │          │
+│       │ Buffered disk │       │  Zero-copy    │       │   Parallel    │          │
+│       │    writes     │       │  file reads   │       │  processing   │          │
+│       └───────────────┘       └───────────────┘       └───────────────┘          │
+└────────────┬─────────────────────────────────────────────────────────────────────┘
+             │
+             ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                               FILE SYSTEM                                         │
+│                                                                                   │
+│    archive_directory/                                                             │
+│    └── {filename}_{hash}/                                                         │
+│        ├── manifest.json         ← Merkle root, segment hashes, metadata          │
+│        ├── segments/             ← Original data split into 32MB chunks           │
+│        │   └── segment_N.dat                                                      │
+│        ├── parity/               ← Reed-Solomon parity shards                     │
+│        │   └── parity_N.dat                                                       │
+│        └── blocks/               ← Tier 3: groups of 30 segments                  │
+│            └── block_N/                                                           │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow: Commit
+### Tier Overview
 
-```mermaid
-flowchart LR
-    subgraph Input
-        A["Original File"]
-    end
-
-    subgraph Process["Processing"]
-        B["Memory Map"] --> C["Segmentation"]
-        C --> D["Block Grouping"]
-    end
-
-    subgraph Encode["Encoding"]
-        E["RS Parity"]
-        F["Merkle Tree"]
-    end
-
-    subgraph Output
-        G["segments/*.dat"]
-        H["parity/*.dat"]
-        I["manifest.json"]
-    end
-
-    Input --> Process
-    D --> E
-    D --> F
-    E --> H
-    C --> G
-    F --> I
-```
-
-### Data Flow: Recovery
-
-```mermaid
-flowchart LR
-    subgraph Detect
-        A["Hash Mismatch"]
-    end
-
-    subgraph Read
-        B["Available Segments"]
-        C["Parity Shards"]
-    end
-
-    subgraph Decode
-        D["RS Decoder"]
-    end
-
-    subgraph Verify
-        E["Merkle Proof"]
-    end
-
-    subgraph Write
-        F["Restored Segment"]
-    end
-
-    Detect --> Read
-    B --> D
-    C --> D
-    D --> Verify
-    Verify --> Write
-```
-
-### Tier Selection
-
-```mermaid
-flowchart TB
-    subgraph Input
-        A["Input File"]
-    end
-
-    subgraph Decision
-        B{"Size Check"}
-    end
-
-    subgraph Tiers
-        direction LR
-        T1["Tier 1\n< 10MB"]
-        T2["Tier 2\n10MB-1GB"]
-        T3["Tier 3\n1-35GB"]
-        T4["Tier 4\n> 35GB"]
-    end
-
-    subgraph Strategy
-        direction LR
-        S1["RS(1,3)\nNo segments"]
-        S2["Per-segment\nRS(1,3)"]
-        S3["Block\nRS(30,3)"]
-        S4["Hierarchical\nparity"]
-    end
-
-    subgraph Overhead
-        direction LR
-        O1["300%"]
-        O2["300%"]
-        O3["10%"]
-        O4["11-15%"]
-    end
-
-    Input --> Decision
-    Decision --> T1
-    Decision --> T2
-    Decision --> T3
-    Decision --> T4
-    T1 --> S1 --> O1
-    T2 --> S2 --> O2
-    T3 --> S3 --> O3
-    T4 --> S4 --> O4
-```
-
-### Module Organization
-
-```mermaid
-flowchart TB
-    subgraph Library["lib.rs"]
-        LIB["pub mod exports"]
-    end
-
-    subgraph Modules
-        direction LR
-        subgraph chunker["chunker/"]
-            C1["commit.rs"]
-            C2["generate.rs"]
-            C3["io.rs"]
-            C4["helpers.rs"]
-        end
-        subgraph filestore["filestore/"]
-            F1["health.rs"]
-            F2["models.rs"]
-        end
-        subgraph merkle["merkle_tree/"]
-            M1["node.rs"]
-            M2["manifest.rs"]
-        end
-    end
-
-    subgraph Shared["Shared"]
-        U["utils.rs"]
-    end
-
-    Library --> Modules
-    Modules --> Shared
-```
-
-### Storage Layout
-
-**Tier 1 (Tiny Files):**
-```
-archive_directory/{name}_{hash}/
-├── data.dat
-├── parity_0.dat
-├── parity_1.dat
-├── parity_2.dat
-└── manifest.json
-```
-
-**Tier 2 (Medium Files):**
-```
-archive_directory/{name}_{hash}/
-├── segments/
-│   ├── segment_0.dat
-│   ├── segment_1.dat
-│   └── ...
-├── parity/
-│   ├── segment_0_parity_0.dat
-│   ├── segment_0_parity_1.dat
-│   └── ...
-└── manifest.json
-```
-
-**Tier 3 (Large Files):**
-```
-archive_directory/{name}_{hash}/
-├── blocks/
-│   ├── block_0/
-│   │   ├── segments/
-│   │   │   ├── segment_0.dat ... segment_29.dat
-│   │   └── parity/
-│   │       ├── block_parity_0.dat
-│   │       ├── block_parity_1.dat
-│   │       └── block_parity_2.dat
-│   └── block_1/
-│       └── ...
-└── manifest.json
-```
+| Tier | File Size | Strategy | Overhead | Recovery |
+|------|-----------|----------|----------|----------|
+| **1** | < 10 MB | RS(1,3) whole file | 300% | Lose any 2 of 3 parity |
+| **2** | 10 MB - 1 GB | Per-segment RS(1,3) | 300% | Per-segment recovery |
+| **3** | 1 GB - 35 GB | Block RS(30,3) | 10% | Lose 3 per block |
+| **4** | > 35 GB | Hierarchical parity | 11-15% | Multi-level recovery |
 
 BlockFrame uses a **4-tier adaptive architecture** that selects the optimal storage strategy based on file size:
 
