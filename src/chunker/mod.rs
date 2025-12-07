@@ -70,3 +70,6 @@ mod commit;
 mod generate;
 mod helpers;
 mod io;
+
+#[cfg(test)]
+mod tests;

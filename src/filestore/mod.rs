@@ -6,17 +6,69 @@ use crate::filestore::models::File;
 use crate::merkle_tree::MerkleTree;
 use crate::merkle_tree::manifest::ManifestFile;
 
+/// FileStore manages the archive directory and provides access to stored files.
+///
+/// This is the main interface for interacting with archived files, including:
+/// - Listing all files in the archive
+/// - Finding specific files by name
+/// - Reconstructing original files from erasure-coded shards
+/// - Health checking and repair operations
 pub struct FileStore {
     pub store_path: PathBuf,
 }
 
 impl FileStore {
+    /// Creates a new FileStore instance pointing to an archive directory.
+    ///
+    /// # Parameters
+    ///
+    /// * `store_path` - Path to the archive directory (e.g., `archive_directory/`)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(FileStore)` - Ready-to-use store instance
+    /// * `Err` - If path conversion fails (rare)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use blockframe::filestore::FileStore;
+    /// use std::path::Path;
+    ///
+    /// let store = FileStore::new(Path::new("archive_directory"))?;
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn new(store_path: &Path) -> Result<Self, std::io::Error> {
         Ok(FileStore {
             store_path: store_path.to_path_buf(),
         })
     }
 
+    /// Retrieves a list of all files in the archive.
+    ///
+    /// This function scans all subdirectories in the archive, reads each `manifest.json`,
+    /// and constructs a `File` object for each archived file.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<File>)` - List of all files with metadata (name, hash, path)
+    /// * `Err` - If directory read fails or manifest parsing fails
+    ///
+    /// # Performance
+    ///
+    /// - Reads all manifest.json files in the archive
+    /// - For large archives (1000+ files), consider caching this result
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use blockframe::filestore::FileStore;
+    /// # use std::path::Path;
+    /// # let store = FileStore::new(Path::new("archive_directory"))?;
+    /// let all_files = store.get_all()?;
+    /// println!("Archive contains {} files", all_files.len());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn get_all(&self) -> Result<Vec<File>, Box<dyn std::error::Error>> {
         let mut file_list: Vec<File> = Vec::new();
 
@@ -47,10 +99,31 @@ impl FileStore {
         return manifests;
     }
 
+    /// Finds a specific file in the archive by its original filename.
+    ///
+    /// This function searches through all archived files and returns the first
+    /// match with the specified filename.
+    ///
+    /// # Parameters
+    ///
+    /// * `filename` - The original filename (e.g., `"example.txt"`)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(File)` - Metadata for the found file
+    /// * `Err(NotFound)` - If no file with that name exists in the archive
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use blockframe::filestore::FileStore;
+    /// # use std::path::Path;
+    /// # let store = FileStore::new(Path::new("archive_directory"))?;
+    /// let file = store.find(&"myfile.txt".to_string())?;
+    /// println!("Found: {}", file.file_name);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find(&self, filename: &String) -> Result<File, Box<dyn std::error::Error>> {
-        // so we give this a file name as a string
-        // then we return a file class "record"
-        // our health functions will then be reassigned to use File class as they contain all attributes we need
         let files = &self.get_all()?;
 
         for file in files {
@@ -272,3 +345,9 @@ impl FileStore {
 
 pub mod health;
 pub mod models;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod health_tests;

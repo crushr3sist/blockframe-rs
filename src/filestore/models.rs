@@ -62,3 +62,31 @@ pub struct CommitedFile {
     pub manifest: ManifestFile,
     pub segments: Segments,
 }
+
+#[derive(Debug, PartialEq)]
+pub enum HealthStatus {
+    Healthy,
+    Degraded,
+    Recoverable,
+    Unrecoverable,
+}
+
+#[derive(Debug)]
+pub struct HealthReport {
+    pub status: HealthStatus,
+    pub missing_data: Vec<String>,
+    pub missing_parity: Vec<String>,
+    pub corrupt_segments: Vec<String>,
+    pub recoverable: bool,
+    pub details: String,
+}
+
+#[derive(Debug)]
+pub struct BatchHealthReport {
+    pub total_files: usize,
+    pub healthy: usize,
+    pub degraded: usize,
+    pub recoverable: usize,
+    pub unrecoverable: usize,
+    pub reports: Vec<(String, HealthReport)>,
+}

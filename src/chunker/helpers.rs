@@ -8,12 +8,13 @@ impl Chunker {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// # use blockframe::chunker::Chunker;
-    /// # fn main() -> Result<(), std::io::Error> {
-    /// let chunker = Chunker::new().unwrap();
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let chunker = Chunker::new()?;
     /// let chunks = chunker.get_chunks(b"blockframe segment hashing")?;
-    /// let parity = chunker.generate_parity(&chunks, 6, 3)?;
+    /// let chunk_refs: Vec<&[u8]> = chunks.iter().map(|c| c.as_slice()).collect();
+    /// let parity = chunker.generate_parity(&chunk_refs, 6, 3)?;
     /// let segment_hash = chunker.hash_segment(&chunks, &parity)?;
     /// assert_eq!(segment_hash.len(), 64);
     /// # Ok(())

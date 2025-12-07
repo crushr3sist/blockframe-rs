@@ -17,6 +17,55 @@ use memmap2::Mmap;
 
 const MMAP_THRESHOLD: u64 = 10 * 1024 * 1024;
 impl Chunker {
+    /// Commits a tiny file (< 10MB) using Tier 1 Reed-Solomon encoding.
+    ///
+    /// This function implements the simplest tier of the erasure coding system,
+    /// using RS(1,3) where the entire file is treated as a single data shard
+    /// with 3 parity shards generated for redundancy.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Read entire file into memory
+    /// 2. Pad data to multiple of 64 bytes (Reed-Solomon requirement)
+    /// 3. Generate 3 parity shards using RS(1,3) encoder
+    /// 4. Write `data.dat` and `parity_0.dat`, `parity_1.dat`, `parity_2.dat`
+    /// 5. Create Merkle tree from all 4 shard hashes
+    /// 6. Write manifest with metadata
+    ///
+    /// # Parameters
+    ///
+    /// * `file_path` - Path to the source file to commit
+    /// * `file_size` - Size of the file in bytes (must be < 10MB)
+    /// * `tier` - Tier identifier (should be 1 for tiny files)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ChunkedFile)` - Metadata about the committed file including:
+    ///   - Archive directory path
+    ///   - File hash (SHA256 or BLAKE3)
+    ///   - Merkle tree root
+    ///   - Reed-Solomon parameters (1 data shard, 3 parity shards)
+    /// * `Err` - If file read fails, RS encoding fails, or I/O error occurs
+    ///
+    /// # Example Directory Structure
+    ///
+    /// ```text
+    /// archive_directory/
+    ///   example.txt_abc123.../
+    ///     data.dat          (original file, padded)
+    ///     parity_0.dat      (first parity shard)
+    ///     parity_1.dat      (second parity shard)
+    ///     parity_2.dat      (third parity shard)
+    ///     manifest.json     (metadata + merkle root)
+    /// ```
+    ///
+    /// # Recovery Capability
+    ///
+    /// With RS(1,3), the original file can be recovered from:
+    /// - The data shard alone (if healthy)
+    /// - Any 1 of the 3 parity shards (if data is missing/corrupt)
+    ///
+    /// Up to 3 shards can be lost and the file is still recoverable.
     pub fn commit_tiny(
         &self,
         file_path: &Path,
@@ -93,6 +142,69 @@ impl Chunker {
         })
     }
 
+    /// Commits a medium file (10MB - 1GB) using Tier 2 segmented Reed-Solomon encoding.
+    ///
+    /// This function implements per-segment erasure coding where the file is divided
+    /// into segments (1MB/8MB/32MB each depending on file size), and each segment
+    /// gets its own RS(1,3) encoding for independent recovery.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Determine optimal segment size (1MB/8MB/32MB) based on file size
+    /// 2. Use memory mapping (mmap) for files > 10MB for efficient I/O
+    /// 3. Process file in segments:
+    ///    - For each segment, generate 3 parity shards using RS(1,3)
+    ///    - Write segment to `segments/segment_N`
+    ///    - Write parity to `parity/segment_N_parity_0/1/2`
+    ///    - Compute segment hash (data + parity combined)
+    /// 4. Build Merkle tree from all segment hashes
+    /// 5. Compute full file hash (BLAKE3) during segment processing
+    /// 6. Write manifest with tier metadata
+    ///
+    /// # Parameters
+    ///
+    /// * `file_path` - Path to the source file to commit
+    /// * `tier` - Tier identifier (should be 2 for segmented files)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ChunkedFile)` - Metadata including:
+    ///   - Number of segments created
+    ///   - Segment size used
+    ///   - Merkle tree of segment hashes
+    ///   - File hash
+    /// * `Err` - If file read fails, RS encoding fails, or I/O error occurs
+    ///
+    /// # Example Directory Structure
+    ///
+    /// ```text
+    /// archive_directory/
+    ///   largefile.bin_def456.../
+    ///     segments/
+    ///       segment_0          (first data segment)
+    ///       segment_1          (second data segment)
+    ///       ...
+    ///     parity/
+    ///       segment_0_parity_0 (first parity for segment 0)
+    ///       segment_0_parity_1
+    ///       segment_0_parity_2
+    ///       segment_1_parity_0 (parity for segment 1)
+    ///       ...
+    ///     manifest.json
+    /// ```
+    ///
+    /// # Recovery Capability
+    ///
+    /// Each segment can be independently recovered:
+    /// - If segment N is corrupt, use its 3 parity shards to rebuild it
+    /// - Multiple segments can be lost as long as each has <3 shards missing
+    /// - Allows partial file recovery (e.g., recover segments 0-5 even if 6+ are lost)
+    ///
+    /// # Performance
+    ///
+    /// - Uses memory mapping for efficient I/O on large files
+    /// - Parallel processing of segment hashing (via Rayon)
+    /// - Segment size optimized for system memory constraints
     pub fn commit_segmented(
         &self,
         file_path: &Path,
@@ -257,6 +369,72 @@ impl Chunker {
         })
     }
 
+    /// Commits a large file (1GB - 35GB) using Tier 3 blocked Reed-Solomon encoding.
+    ///
+    /// This function implements the most complex tier, dividing files into blocks
+    /// where each block contains up to 30 segments. Reed-Solomon RS(30,3) is applied
+    /// per-block, allowing recovery of up to 3 missing segments within each block.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Determine segment size (1MB/8MB/32MB) based on available memory
+    /// 2. Calculate number of blocks needed (segments / 30, rounded up)
+    /// 3. For each block (processed in parallel):
+    ///    - Collect up to 30 segments from the file
+    ///    - Generate 3 parity shards using RS(30,3) encoder
+    ///    - Write segments to `blocks/block_N/segments/segment_0..29`
+    ///    - Write parity to `blocks/block_N/parity/parity_0/1/2`
+    ///    - Build block-level Merkle tree from segment + parity hashes
+    ///    - Return block root hash
+    /// 4. Build file-level Merkle tree from all block root hashes
+    /// 5. Compute full file hash (SHA256 via mmap)
+    /// 6. Write manifest with tier 3 metadata
+    ///
+    /// # Parameters
+    ///
+    /// * `file_path` - Path to the source file to commit
+    /// * `tier` - Tier identifier (should be 3 for blocked files)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ChunkedFile)` - Metadata including:
+    ///   - Number of blocks and segments
+    ///   - Two-level Merkle tree (file → blocks → segments)
+    ///   - RS parameters (30 data, 3 parity per block)
+    /// * `Err` - If file read fails, RS encoding fails, or I/O error occurs
+    ///
+    /// # Example Directory Structure
+    ///
+    /// ```text
+    /// archive_directory/
+    ///   hugefile.bin_789abc.../
+    ///     blocks/
+    ///       block_0/
+    ///         segments/
+    ///           segment_0 ... segment_29
+    ///         parity/
+    ///           parity_0 (first parity shard)
+    ///           parity_1
+    ///           parity_2
+    ///       block_1/
+    ///         segments/ ...
+    ///         parity/ ...
+    ///     manifest.json
+    /// ```
+    ///
+    /// # Recovery Capability
+    ///
+    /// Within each block:
+    /// - Can lose up to 3 segments (out of 30) and still recover
+    /// - Parity shards reconstruct missing segments via Reed-Solomon decoding
+    /// - Each block is independent - if block 0 is unrecoverable, block 1+ may still work
+    ///
+    /// # Performance
+    ///
+    /// - **Parallel block processing**: Uses Rayon to encode blocks concurrently
+    /// - **Memory mapping**: Always uses mmap for multi-GB files
+    /// - **Parallel segment hashing**: Within each block, segments are hashed in parallel
+    /// - Pre-creates all directories upfront to reduce filesystem operations
     pub fn commit_blocked(
         &self,
         file_path: &Path,
@@ -432,6 +610,61 @@ impl Chunker {
         })
     }
 
+    /// Main entry point for committing any file to the archive.
+    ///
+    /// This function automatically selects the appropriate tier based on file size
+    /// and routes to the correct commit implementation. It serves as the public
+    /// API for archiving files without requiring the caller to know about tiers.
+    ///
+    /// # Tier Selection Logic
+    ///
+    /// | File Size Range          | Tier | Method              | RS Encoding        |
+    /// |--------------------------|------|---------------------|--------------------|
+    /// | 0 - 10 MB                | 1    | `commit_tiny`       | RS(1,3) whole file |
+    /// | 10 MB - 1 GB             | 2    | `commit_segmented`  | RS(1,3) per segment|
+    /// | 1 GB - 35 GB             | 3    | `commit_blocked`    | RS(30,3) per block |
+    /// | > 35 GB (future)         | 4    | `commit_segmented`  | (planned expansion)|
+    ///
+    /// # Parameters
+    ///
+    /// * `file_path` - Path to the file to archive. File is not loaded into memory
+    ///   until tier-specific processing begins.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ChunkedFile)` - Metadata structure containing:
+    ///   - Archive directory path
+    ///   - File hash (for deduplication and verification)
+    ///   - Merkle tree (for integrity verification)
+    ///   - Tier and RS parameters used
+    /// * `Err` - If file cannot be opened, or tier-specific commit fails
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use blockframe::chunker::Chunker;
+    /// use std::path::Path;
+    ///
+    /// let chunker = Chunker::new()?;
+    /// let result = chunker.commit(Path::new("myfile.dat"))?;
+    ///
+    /// println!("Committed to: {:?}", result.file_dir);
+    /// println!("File hash: {}", result.file_hash);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Performance Characteristics
+    ///
+    /// - **Tier 1** (< 10MB): Fast, entire file in memory
+    /// - **Tier 2** (10MB-1GB): Memory-mapped I/O, segment-by-segment processing
+    /// - **Tier 3** (1GB-35GB): Parallel block processing, optimized for large files
+    ///
+    /// # Notes
+    ///
+    /// - File size is determined via metadata without reading file content
+    /// - The function does not modify the original file
+    /// - Archive directory is created automatically if it doesn't exist
+    /// - Duplicate files (same hash) will overwrite existing archives
     pub fn commit(&self, file_path: &Path) -> Result<ChunkedFile, Box<dyn std::error::Error>> {
         // 1. Get file metadata (doesnt load file)
         let file = File::open(file_path)?;
