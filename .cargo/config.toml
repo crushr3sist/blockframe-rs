@@ -1,0 +1,6 @@
+[env]
+WINFSP_NO_BINDGEN = "1"
+WINFSP_SYS_NO_BINDGEN = "1"
+
+[build]
+target = "x86_64-unknown-linux-gnu"

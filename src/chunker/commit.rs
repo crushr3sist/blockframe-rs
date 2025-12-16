@@ -1,6 +1,6 @@
+use std::fs;
 use std::fs::File;
 use std::path::Path;
-use std::{fs, os::windows::fs::MetadataExt};
 
 use super::Chunker;
 use crate::chunker::ChunkedFile;
@@ -444,7 +444,7 @@ impl Chunker {
         let file = File::open(file_path)?;
 
         // get the file size
-        let file_size = file.metadata()?.file_size() as usize;
+        let file_size = file.metadata()?.len() as usize;
 
         // extract the file name
         let file_name = file_path

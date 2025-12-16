@@ -75,7 +75,6 @@ impl FileStore {
         let manifests = &self.all_files();
         for path in manifests.iter() {
             let manifest: ManifestFile = ManifestFile::new(path.display().to_string())?;
-
             let file_entry = File::new(
                 manifest.name,
                 manifest.original_hash.to_string(),
@@ -127,10 +126,7 @@ impl FileStore {
         let files = &self.get_all()?;
 
         for file in files {
-            println!("made it into the loop");
             if file.file_name == *filename {
-                println!("condition is correct");
-
                 return Ok(file.clone().to_owned());
             }
         }
@@ -340,6 +336,67 @@ impl FileStore {
         let segment_tree = MerkleTree::new(combined)?;
 
         Ok(segment_tree.get_root()?.to_string())
+    }
+
+    /// Get path to segment for Tier 1
+    pub fn get_data_path(&self, file: &File) -> PathBuf {
+        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
+        file_dir.join("data.dat")
+    }
+
+    /// Get path to block segment for Tier 3
+    pub fn get_segment_path(&self, file: &File, segment_id: usize) -> PathBuf {
+        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
+        file_dir
+            .join("segments")
+            .join(format!("segment_{}.dat", segment_id))
+    }
+
+    /// Get path to segment for Tier 2
+    pub fn get_block_segment_path(
+        &self,
+        file: &File,
+        block_id: usize,
+        segment_id: usize,
+    ) -> PathBuf {
+        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
+        file_dir
+            .join("blocks")
+            .join(format!("block_{}", block_id))
+            .join("segments")
+            .join(format!("segment_{}.dat", segment_id))
+    }
+
+    /// Get path to parity file
+    pub fn get_parity_path_t1(&self, file: &File, parity_id: usize) -> PathBuf {
+        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
+        file_dir
+            .join("parity")
+            .join(format!("parity_{}.dat", parity_id))
+    }
+
+    /// Get path to parity file
+    pub fn get_parity_path_t2(&self, file: &File, segment_id: usize, parity_id: usize) -> PathBuf {
+        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
+        file_dir
+            .join("parity")
+            .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id))
+    }
+
+    /// Get path to parity file
+    pub fn get_parity_path_t3(
+        &self,
+        file: &File,
+        segment_id: usize,
+        block_id: usize,
+        parity_id: usize,
+    ) -> PathBuf {
+        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
+        file_dir
+            .join("blocks")
+            .join(format!("block_{}", block_id))
+            .join("parity")
+            .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id))
     }
 }
 

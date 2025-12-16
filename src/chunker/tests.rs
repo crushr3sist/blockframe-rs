@@ -92,11 +92,7 @@ mod tests {
         // Check that 3 parity files exist
         for i in 0..3 {
             let parity_path = chunked.file_dir.join(format!("parity_{}.dat", i));
-            assert!(
-                parity_path.exists(),
-                "Parity file {} should exist",
-                i
-            );
+            assert!(parity_path.exists(), "Parity file {} should exist", i);
         }
 
         // Check that manifest.json exists
