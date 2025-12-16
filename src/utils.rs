@@ -24,6 +24,7 @@ pub fn sha256(data: &[u8]) -> Result<String, std::io::Error> {
     let mut hasher = Hasher::new();
     hasher.update(data);
     let result = hasher.finalize();
+
     return Ok(result.to_string());
 }
 

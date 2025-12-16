@@ -1,19 +1,56 @@
 [package]
 name = "blockframe"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
+
+
+[[bin]]
+name = "blockframe"
+path = "src/bin/main.rs"
+
+[lib]
+name = "blockframe"
+path = "src/lib.rs"
 
 [dependencies]
 chrono = "0.4.42"
 rand = "0.9.2"
-reed-solomon-simd = "3.0"
+reed-solomon-simd = "3.1.0"
 
+# engine requirements
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-blake3 = "1.5"
+blake3 = "1.8.2"
 sysinfo = "0.37.2"
 memmap2 = "0.9.9"
 rayon = "1.11.0"
+
+# service layer
+
+
+poem = "3.1.12"
+poem-openapi = { version = "5.1.16", features = ["swagger-ui"] }
+tokio = { version = "1.48.0", features = ["full"] }
+lru = "0.16.2"
+reqwest = { version = "0.12.26", features = ["blocking", "json"] }
+tracing = "0.1.43"
+tracing-subscriber = "0.3.22"
+clap = { version = "4.5.53", features = ["derive"] }
+parking_lot = "0.12.5"
+
+# linux only
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.178"
+fuser = "0.16.0"
+
+# windows only
+[target.'cfg(windows)'.dependencies]
+winfsp = "0.12.4"
+windows = { version = "0.62.2", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Foundation",
+] }
 
 [profile.release]
 debug = true  # Enable symbols for profiling
@@ -21,3 +58,6 @@ opt-level = 3 # Still fully optimized
 
 [dev-dependencies]
 tempfile = "3.23.0"
+
+[patch.crates-io]
+winfsp-sys = { path = "./patches/winfsp-rs/winfsp-sys" }
