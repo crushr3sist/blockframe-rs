@@ -370,9 +370,7 @@ impl FileStore {
     /// Get path to parity file
     pub fn get_parity_path_t1(&self, file: &File, parity_id: usize) -> PathBuf {
         let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir
-            .join("parity")
-            .join(format!("parity_{}.dat", parity_id))
+        file_dir.join(format!("parity_{}.dat", parity_id))
     }
 
     /// Get path to parity file
@@ -384,19 +382,13 @@ impl FileStore {
     }
 
     /// Get path to parity file
-    pub fn get_parity_path_t3(
-        &self,
-        file: &File,
-        segment_id: usize,
-        block_id: usize,
-        parity_id: usize,
-    ) -> PathBuf {
+    pub fn get_parity_path_t3(&self, file: &File, block_id: usize, parity_id: usize) -> PathBuf {
         let file_dir = Path::new(&file.file_data.path).parent().unwrap();
         file_dir
             .join("blocks")
             .join(format!("block_{}", block_id))
             .join("parity")
-            .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id))
+            .join(format!("block_parity_{}.dat", parity_id))
     }
 }
 

@@ -1,5 +1,14 @@
-use blockframe::{chunker::Chunker, filestore::FileStore, serve::run_server};
+use blockframe::{
+    chunker::Chunker,
+    filestore::FileStore,
+    mount::{
+        BlockframeFS,
+        source::{LocalSource, RemoteSource, SegmentSource},
+    },
+    serve::run_server,
+};
 use clap::{Parser, Subcommand};
+use fuser::MountOption;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -113,7 +122,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             archive,
             remote,
         } => {
-            todo!("")
+            let source: Box<dyn SegmentSource> = if let Some(url) = remote {
+                Box::new(RemoteSource::new(url))
+            } else if let Some(path) = archive {
+                Box::new(LocalSource::new(path)?)
+            } else {
+                eprintln!("Must specify --archive or --remote");
+                std::process::exit(1);
+            };
+
+            let fs = BlockframeFS::new(source)?;
+
+            let options = vec![
+                MountOption::RO,
+                MountOption::FSName("blockframe".to_string()),
+            ];
+
+            if !mountpoint.exists() {
+                match std::fs::create_dir_all(&mountpoint) {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        // If exists() returned false but mkdir failed with AlreadyExists, it's likely a broken mount.
+                        eprintln!("Mountpoint appears to be stale. Attempting cleanup...");
+                        let _ = std::process::Command::new("fusermount3")
+                            .arg("-u")
+                            .arg("-q")
+                            .arg(&mountpoint)
+                            .status();
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            fuser::mount2(fs, &mountpoint, &options)?;
+            Ok(())
         }
     }
 }

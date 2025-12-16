@@ -4,11 +4,15 @@ use std::{collections::HashMap, fs};
 use crate::{merkle_tree::MerkleTree, utils::sha256};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BlockInfo {
-    pub block_id: usize,
-    pub block_root: String,
-    pub segment_hashes: Vec<String>,
-    pub parity_hashes: Vec<String>,
+pub struct SegmentHashes {
+    pub data: String,
+    pub parity: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BlockHashes {
+    pub segments: Vec<String>,
+    pub parity: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -20,7 +24,12 @@ pub struct ErasureCoding {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MerkleTreeStructure {
+    #[serde(default)]
     pub leaves: HashMap<i32, String>,
+    #[serde(default)]
+    pub segments: HashMap<usize, SegmentHashes>,
+    #[serde(default)]
+    pub blocks: HashMap<usize, BlockHashes>,
     pub root: String,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -49,8 +58,11 @@ impl ManifestFile {
             return Ok(false);
         }
 
-        // check we have leaves
-        if self.merkle_tree.leaves.is_empty() {
+        // check we have content (leaves OR segments OR blocks)
+        if self.merkle_tree.leaves.is_empty()
+            && self.merkle_tree.segments.is_empty()
+            && self.merkle_tree.blocks.is_empty()
+        {
             return Ok(false);
         }
 
