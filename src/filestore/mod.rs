@@ -72,7 +72,7 @@ impl FileStore {
     pub fn get_all(&self) -> Result<Vec<File>, Box<dyn std::error::Error>> {
         let mut file_list: Vec<File> = Vec::new();
 
-        let manifests = &self.all_files();
+        let manifests = self.all_files()?;
         for path in manifests.iter() {
             let manifest: ManifestFile = ManifestFile::new(path.display().to_string())?;
             let file_entry = File::new(
@@ -87,15 +87,13 @@ impl FileStore {
         return Ok(file_list);
     }
 
-    pub fn all_files(&self) -> Vec<PathBuf> {
-        let all_dirs = fs::read_dir(&self.store_path);
+    pub fn all_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
+        let all_dirs = fs::read_dir(&self.store_path)?;
         let manifests: Vec<PathBuf> = all_dirs
-            .into_iter()
-            .flatten()
             .filter_map(|entry| entry.ok())
             .map(|f| f.path().join("manifest.json"))
             .collect();
-        return manifests;
+        return Ok(manifests);
     }
 
     /// Finds a specific file in the archive by its original filename.
