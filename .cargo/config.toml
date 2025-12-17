@@ -4,3 +4,13 @@ WINFSP_SYS_NO_BINDGEN = "1"
 
 [build]
 target = "x86_64-unknown-linux-gnu"
+
+[cache]
+max_segments = 100
+max_size = "1GB"
+
+[server]
+default_port = 8080
+
+[logging]
+level = "info"
