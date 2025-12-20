@@ -1,8 +1,9 @@
 use lru::LruCache;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 pub struct SegmentCache {
-    cache: LruCache<String, Vec<u8>>,
+    cache: LruCache<String, Arc<Vec<u8>>>,
 }
 
 impl SegmentCache {
@@ -11,12 +12,21 @@ impl SegmentCache {
             cache: LruCache::new(NonZeroUsize::new(capacity).unwrap()),
         }
     }
+
+    pub fn get(&mut self, key: &str) -> Option<Arc<Vec<u8>>> {
+        self.cache.get(key).cloned()
+    }
+
+    pub fn put(&mut self, key: String, value: Arc<Vec<u8>>) {
+        self.cache.put(key, value);
+    }
+
     pub fn get_or_fetch<F>(
         &mut self,
         filename: &str,
         segment_id: usize,
         fetch: F,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>
+    ) -> Result<Arc<Vec<u8>>, Box<dyn std::error::Error>>
     where
         F: FnOnce() -> Result<Vec<u8>, Box<dyn std::error::Error>>,
     {
@@ -24,7 +34,7 @@ impl SegmentCache {
         if let Some(data) = self.cache.get(&key) {
             return Ok(data.clone());
         }
-        let data = fetch()?;
+        let data = Arc::new(fetch()?);
         self.cache.put(key, data.clone());
         Ok(data)
     }

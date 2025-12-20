@@ -1,3 +1,4 @@
+pub mod build;
 pub mod chunker;
 pub mod filestore;
 pub mod merkle_tree;

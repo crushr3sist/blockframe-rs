@@ -72,7 +72,7 @@ impl FileStore {
     pub fn get_all(&self) -> Result<Vec<File>, Box<dyn std::error::Error>> {
         let mut file_list: Vec<File> = Vec::new();
 
-        let manifests = &self.all_files();
+        let manifests = self.all_files()?;
         for path in manifests.iter() {
             let manifest: ManifestFile = ManifestFile::new(path.display().to_string())?;
             let file_entry = File::new(
@@ -87,15 +87,13 @@ impl FileStore {
         return Ok(file_list);
     }
 
-    pub fn all_files(&self) -> Vec<PathBuf> {
-        let all_dirs = fs::read_dir(&self.store_path);
+    pub fn all_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
+        let all_dirs = fs::read_dir(&self.store_path)?;
         let manifests: Vec<PathBuf> = all_dirs
-            .into_iter()
-            .flatten()
             .filter_map(|entry| entry.ok())
             .map(|f| f.path().join("manifest.json"))
             .collect();
-        return manifests;
+        return Ok(manifests);
     }
 
     /// Finds a specific file in the archive by its original filename.
@@ -370,9 +368,7 @@ impl FileStore {
     /// Get path to parity file
     pub fn get_parity_path_t1(&self, file: &File, parity_id: usize) -> PathBuf {
         let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir
-            .join("parity")
-            .join(format!("parity_{}.dat", parity_id))
+        file_dir.join(format!("parity_{}.dat", parity_id))
     }
 
     /// Get path to parity file
@@ -384,19 +380,13 @@ impl FileStore {
     }
 
     /// Get path to parity file
-    pub fn get_parity_path_t3(
-        &self,
-        file: &File,
-        segment_id: usize,
-        block_id: usize,
-        parity_id: usize,
-    ) -> PathBuf {
+    pub fn get_parity_path_t3(&self, file: &File, block_id: usize, parity_id: usize) -> PathBuf {
         let file_dir = Path::new(&file.file_data.path).parent().unwrap();
         file_dir
             .join("blocks")
             .join(format!("block_{}", block_id))
             .join("parity")
-            .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id))
+            .join(format!("block_parity_{}.dat", parity_id))
     }
 }
 

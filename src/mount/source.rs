@@ -1,6 +1,7 @@
 use crate::filestore::FileStore;
 use crate::merkle_tree::manifest::ManifestFile;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 pub trait SegmentSource: Send + Sync {
@@ -24,6 +25,13 @@ pub trait SegmentSource: Send + Sync {
         parity_id: usize,
         block_id: Option<usize>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    fn write_parity(
+        &self,
+        filename: &str,
+        segment_id: usize,
+        block_id: Option<usize>,
+        recovered_bytes: &Vec<u8>,
+    ) -> Result<bool, Box<dyn std::error::Error>>;
     fn read_data(&self, filename: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 }
 
@@ -94,11 +102,57 @@ impl SegmentSource for LocalSource {
                 let block_id =
                     block_id.ok_or_else(|| "block_id is required for tier 3 parity reads")?;
 
-                let parity_bytes = fs::read(
-                    self.store
-                        .get_parity_path_t3(&file, segment_id, parity_id, block_id),
-                )?;
+                let parity_bytes =
+                    fs::read(self.store.get_parity_path_t3(&file, block_id, parity_id))?;
                 Ok(parity_bytes)
+            }
+
+            _ => Err("unknown tier".into()),
+        }
+    }
+
+    fn write_parity(
+        &self,
+        filename: &str,
+        segment_id: usize,
+        block_id: Option<usize>,
+        recovered_bytes: &Vec<u8>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let file = self.store.find(&filename.to_string())?;
+
+        match &file.manifest.tier {
+            1 => {
+                let file_path = Path::new(&file.file_data.path)
+                    .parent()
+                    .ok_or("No parent directory")?;
+                let data_path = file_path.join("data.dat");
+                fs::write(&data_path, &recovered_bytes)?;
+                Ok(true)
+            }
+            2 => {
+                let file_path = Path::new(&file.file_data.path)
+                    .parent()
+                    .ok_or("No parent directory")?
+                    .join("segments")
+                    .join(format!("segment_{}.dat", segment_id));
+                fs::write(file_path, recovered_bytes)?;
+
+                Ok(true)
+            }
+            3 => {
+                let block_id =
+                    block_id.ok_or_else(|| "block_id is required for tier 3 parity reads")?;
+
+                let file_path = Path::new(&file.file_data.path)
+                    .parent()
+                    .ok_or("No parent directory")?
+                    .join("blocks")
+                    .join(format!("block_{}", block_id))
+                    .join("segments")
+                    .join(format!("segment_{}.dat", segment_id));
+                fs::write(file_path, recovered_bytes)?;
+
+                Ok(true)
             }
 
             _ => Err("unknown tier".into()),
@@ -182,6 +236,25 @@ impl SegmentSource for RemoteSource {
         let response = self.client.get(&url).send()?;
         Ok(response.bytes()?.to_vec())
     }
+
+    fn write_parity(
+        &self,
+        filename: &str,
+        segment_id: usize,
+        block_id: Option<usize>,
+        recovered_bytes: &Vec<u8>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let url = format!(
+            "{}/api/files/{}/parity?block_id={}&segment_id={}",
+            self.base_url,
+            filename,
+            block_id.unwrap(),
+            segment_id,
+        );
+        let response = self.client.get(&url).send()?;
+        Ok(true)
+    }
+
     fn read_data(&self, filename: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let url = format!("{}/api/files/{}/", self.base_url, filename);
         let response = self.client.get(&url).send()?;

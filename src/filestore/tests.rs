@@ -120,7 +120,7 @@ mod tests {
         let store = FileStore::new(&archive_dir).unwrap();
         let manifests = store.all_files();
 
-        assert_eq!(manifests.len(), 1);
-        assert!(manifests[0].ends_with("manifest.json"));
+        assert_eq!(manifests.iter().clone().len(), 1);
+        assert!(&manifests.unwrap()[0].ends_with("manifest.json"));
     }
 }

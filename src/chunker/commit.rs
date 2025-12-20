@@ -1,10 +1,14 @@
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
 
 use super::Chunker;
 use crate::chunker::ChunkedFile;
-use crate::merkle_tree::MerkleTree;
+use crate::merkle_tree::{
+    MerkleTree,
+    manifest::{BlockHashes, MerkleTreeStructure, SegmentHashes},
+};
 use crate::utils::sha256;
 use rayon::prelude::*;
 use reed_solomon_simd::ReedSolomonEncoder;
@@ -279,6 +283,7 @@ impl Chunker {
         // empty vector for our segment hashes that are going to be generated
         // through the numerical index loop
         let mut segment_hashes = Vec::new();
+        let mut segments_map = HashMap::new();
 
         // our segment read buffer
         // its a statically sized array for segment size consistancy
@@ -328,8 +333,25 @@ impl Chunker {
 
             self.write_segment(segment_index, segments_dir, &segment_data)?;
             self.write_segment_parities(segment_index, parity_dir, &parity)?;
-            let segment_hash = self.hash_single_segment(&segment_data, &parity)?;
-            segment_hashes.push(segment_hash);
+
+            let data_hash = sha256(&segment_data)?;
+            let mut parity_hashes = Vec::new();
+            for p in &parity {
+                parity_hashes.push(sha256(p)?);
+            }
+
+            segments_map.insert(
+                segment_index,
+                SegmentHashes {
+                    data: data_hash.clone(),
+                    parity: parity_hashes.clone(),
+                },
+            );
+
+            let mut segment_leaves = vec![data_hash];
+            segment_leaves.extend(parity_hashes);
+            let segment_tree = MerkleTree::from_hashes(segment_leaves)?;
+            segment_hashes.push(segment_tree.root.hash_val);
         }
 
         // Finalize hash after processing all segments
@@ -341,10 +363,16 @@ impl Chunker {
         let final_file_dir = self.get_dir(&file_name, &file_hash)?;
         std::fs::rename(&file_dir, &final_file_dir)?;
 
-        let merkle_tree = MerkleTree::from_hashes(segment_hashes)?;
+        let root_tree = MerkleTree::from_hashes(segment_hashes)?;
+        let merkle_tree_struct = MerkleTreeStructure {
+            leaves: HashMap::new(),
+            segments: segments_map,
+            blocks: HashMap::new(),
+            root: root_tree.root.hash_val.clone(),
+        };
 
-        self.write_manifest(
-            &merkle_tree,
+        self.write_manifest_struct(
+            merkle_tree_struct,
             &file_hash,
             &file_name,
             file_size,
@@ -363,7 +391,7 @@ impl Chunker {
             file_dir: final_file_dir,
             file_trun_hash: file_trun_hash.clone(),
             file_hash: file_hash,
-            merkle_tree: merkle_tree,
+            merkle_tree: root_tree,
             data_shards: self.data_shards,
             parity_shards: self.parity_shards,
         })
@@ -496,11 +524,11 @@ impl Chunker {
             })
             .collect();
 
-        let block_root_hashes: Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> = (0
+        let block_results: Result<Vec<(String, BlockHashes)>, Box<dyn std::error::Error + Send + Sync>> = (0
             ..blocks)
             .into_par_iter()
             .map(
-                |block_index| -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+                |block_index| -> Result<(String, BlockHashes), Box<dyn std::error::Error + Send + Sync>> {
                     let current_block_dir = blocks_dir.join(format!("block_{}", block_index));
                     let block_segments_dir = current_block_dir.join("segments");
                     let block_parity_dir = current_block_dir.join("parity");
@@ -559,20 +587,23 @@ impl Chunker {
                         parity_hashes.push(sha256(p)?);
                     }
 
-                    let mut block_leaf_hashes = segment_hashes;
-                    block_leaf_hashes.extend(parity_hashes);
-
-                    let block_merkle = MerkleTree::from_hashes(block_leaf_hashes)?;
-
+                    // For Tier 3, the block root is the Merkle root of its segments AND parity
+                    let mut block_leaves = segment_hashes.clone();
+                    block_leaves.extend(parity_hashes.clone());
+                    let block_merkle = MerkleTree::from_hashes(block_leaves)?;
                     let block_root = block_merkle.root.hash_val.to_string();
 
-                    Ok(block_root)
+                    Ok((block_root, BlockHashes {
+                        segments: segment_hashes,
+                        parity: parity_hashes,
+                    }))
                 },
             )
             .collect();
 
-        let block_root_hashes =
-            block_root_hashes.map_err(|e| -> Box<dyn std::error::Error> { e })?;
+        let block_results = block_results.map_err(|e| -> Box<dyn std::error::Error> { e })?;
+        let (block_root_hashes, block_structs): (Vec<String>, Vec<BlockHashes>) =
+            block_results.into_iter().unzip();
 
         // mmap already handed us the full file, so just hash the slice directly
         let file_hash = sha256(file_data)?;
@@ -582,10 +613,22 @@ impl Chunker {
         let final_file_dir = self.get_dir(&file_name, &file_hash)?;
         std::fs::rename(&file_dir, &final_file_dir)?;
 
-        let file_merkle_tree = MerkleTree::from_hashes(block_root_hashes)?;
+        let root_tree = MerkleTree::from_hashes(block_root_hashes)?;
 
-        self.write_manifest(
-            &file_merkle_tree,
+        let mut blocks_map = HashMap::new();
+        for (i, b) in block_structs.into_iter().enumerate() {
+            blocks_map.insert(i, b);
+        }
+
+        let merkle_tree_struct = MerkleTreeStructure {
+            leaves: HashMap::new(),
+            segments: HashMap::new(),
+            blocks: blocks_map,
+            root: root_tree.root.hash_val.clone(),
+        };
+
+        self.write_manifest_struct(
+            merkle_tree_struct,
             &file_hash,
             &file_name,
             file_size,
@@ -604,7 +647,7 @@ impl Chunker {
             file_dir: final_file_dir,
             file_trun_hash: file_trun_hash.clone(),
             file_hash: file_hash,
-            merkle_tree: file_merkle_tree,
+            merkle_tree: root_tree,
             data_shards: self.data_shards,
             parity_shards: self.parity_shards,
         })

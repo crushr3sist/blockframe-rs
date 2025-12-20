@@ -33,7 +33,7 @@ poem-openapi = { version = "5.1.16", features = ["swagger-ui"] }
 tokio = { version = "1.48.0", features = ["full"] }
 lru = "0.16.2"
 reqwest = { version = "0.12.26", features = ["blocking", "json"] }
-tracing = "0.1.43"
+tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
 clap = { version = "4.5.53", features = ["derive"] }
 parking_lot = "0.12.5"
@@ -45,12 +45,22 @@ fuser = "0.16.0"
 
 # windows only
 [target.'cfg(windows)'.dependencies]
-winfsp = "0.12.4"
+
+
 windows = { version = "0.62.2", features = [
     "Win32_Storage_FileSystem",
     "Win32_Security",
     "Win32_Foundation",
 ] }
+widestring = "1.0"
+libc = "0.2"
+
+[dependencies.winfsp]
+version = "0.12"
+features = ["full", "windows-61"]
+
+[build-dependencies]
+winfsp = "0.12"
 
 [profile.release]
 debug = true  # Enable symbols for profiling

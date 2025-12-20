@@ -228,7 +228,8 @@ impl FileStore {
         let segments_path = file_folder_path.join("segments");
         let parity_path = file_folder_path.join("parity");
 
-        let leafs = &file_obj.manifest.merkle_tree.leaves;
+        let segments_map = &file_obj.manifest.merkle_tree.segments;
+        let num_segments = segments_map.len();
         let parity_shards = file_obj.manifest.erasure_coding.parity_shards.max(0) as usize;
 
         let mut missing_data = Vec::new();
@@ -237,7 +238,7 @@ impl FileStore {
         let mut total_segments = 0;
         let mut healthy_segments = 0;
 
-        for idx in 0..leafs.len() {
+        for (idx, segment_info) in segments_map {
             total_segments += 1;
             let current_segment = segments_path.join(format!("segment_{}.dat", idx));
 
@@ -250,32 +251,37 @@ impl FileStore {
                 }
             };
 
-            // Check parity files
-            let mut parity_chunks = Vec::with_capacity(parity_shards);
-            let mut parity_missing = false;
-            for parity_idx in 0..parity_shards {
-                let parity_file =
-                    parity_path.join(format!("segment_{}_parity_{}.dat", idx, parity_idx));
-                match fs::read(&parity_file) {
-                    Ok(chunk) => parity_chunks.push(chunk),
-                    Err(_) => {
-                        missing_parity.push(format!("segment_{}_parity_{}.dat", idx, parity_idx));
-                        parity_missing = true;
-                    }
-                }
-            }
-
-            // Verify hash if we have data and parity
-            if !parity_missing {
-                let computed_hash = self.hash_segment_with_parity(&segment_data, &parity_chunks)?;
-                let leaf_hash = leafs
-                    .get(&(idx as i32))
-                    .ok_or("manifest leaf missing for segment index")?;
-
-                if computed_hash != *leaf_hash {
+            // Verify Data Hash
+            if let Ok(actual) = sha256(&segment_data) {
+                if actual != segment_info.data {
                     corrupt_segments.push(format!("segment_{}.dat", idx));
                 } else {
                     healthy_segments += 1;
+                }
+            }
+
+            // Check parity files
+            for parity_idx in 0..parity_shards {
+                let parity_file =
+                    parity_path.join(format!("segment_{}_parity_{}.dat", idx, parity_idx));
+
+                match fs::read(&parity_file) {
+                    Ok(chunk) => {
+                        // Verify Parity Hash
+                        if let Some(expected) = segment_info.parity.get(parity_idx) {
+                            if let Ok(actual) = sha256(&chunk) {
+                                if actual != *expected {
+                                    missing_parity.push(format!(
+                                        "segment_{}_parity_{}.dat (CORRUPT)",
+                                        idx, parity_idx
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        missing_parity.push(format!("segment_{}_parity_{}.dat", idx, parity_idx));
+                    }
                 }
             }
         }

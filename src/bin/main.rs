@@ -1,4 +1,12 @@
-use blockframe::{chunker::Chunker, filestore::FileStore, serve::run_server};
+use blockframe::{
+    chunker::Chunker,
+    filestore::FileStore,
+    mount::{
+        BlockframeFS,
+        source::{LocalSource, RemoteSource, SegmentSource},
+    },
+    serve::run_server,
+};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
@@ -49,6 +57,7 @@ enum Commands {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let chunker = Chunker::new()?;
+    winfsp::winfsp_init_or_die();
 
     match cli.command {
         //SECTION already implimented
@@ -113,7 +122,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             archive,
             remote,
         } => {
-            todo!("")
+            let source: Box<dyn SegmentSource> = if let Some(url) = remote {
+                Box::new(RemoteSource::new(url))
+            } else if let Some(path) = archive {
+                Box::new(LocalSource::new(path)?)
+            } else {
+                eprintln!("Must specify --archive or --remote");
+                std::process::exit(1);
+            };
+
+            let fs = BlockframeFS::new(source)?;
+
+            #[cfg(target_os = "windows")]
+            {
+                use std::io::{self, Read};
+                use winfsp::host::VolumeParams;
+
+                let mut volume_params = VolumeParams::new();
+                volume_params.sector_size(512);
+                volume_params.sectors_per_allocation_unit(1);
+                volume_params.volume_serial_number(0);
+                volume_params.file_info_timeout(1000);
+                volume_params.case_sensitive_search(false);
+                volume_params.case_preserved_names(true);
+                volume_params.unicode_on_disk(true);
+                volume_params.persistent_acls(false);
+                volume_params.post_cleanup_when_modified_only(true);
+
+                let mut host = winfsp::host::FileSystemHost::new(volume_params, fs)?;
+                host.mount(&mountpoint)?;
+                host.start()?;
+
+                println!("Mounted at {:?}. Press Enter to unmount.", mountpoint);
+                io::stdin().read_exact(&mut [0u8]).unwrap();
+                // unmount is handled by Drop
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                use fuser::MountOption;
+
+                let options = vec![
+                    MountOption::RO,
+                    MountOption::FSName("blockframe".to_string()),
+                ];
+
+                if !mountpoint.exists() {
+                    match std::fs::create_dir_all(&mountpoint) {
+                        Ok(_) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                            // If exists() returned false but mkdir failed with AlreadyExists, it's likely a broken mount.
+                            eprintln!("Mountpoint appears to be stale. Attempting cleanup...");
+                            let _ = std::process::Command::new("fusermount")
+                                .arg("-u")
+                                .arg("-q")
+                                .arg(&mountpoint)
+                                .status();
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                fuser::mount2(fs, &mountpoint, &options)?;
+            }
+
+            Ok(())
         }
     }
 }

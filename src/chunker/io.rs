@@ -12,6 +12,7 @@ use std::{
 use serde_json::json;
 
 use crate::merkle_tree::MerkleTree;
+use crate::merkle_tree::manifest::MerkleTreeStructure;
 impl Chunker {
     pub fn check_for_archive_dir(&self) -> Result<(), Box<dyn std::error::Error>> {
         if !Path::new("archive_directory").is_dir() {
@@ -147,6 +148,45 @@ impl Chunker {
                 "parity_shards": parity_shards,
             },
             "merkle_tree": mk_tree,
+            "tier": tier,
+            "segment_size":segment_size,
+        })
+        .to_string()
+        .into_bytes();
+
+        let manifest_path = file_dir.join("manifest.json");
+        let file = File::create(manifest_path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(&manifest)?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    pub fn write_manifest_struct(
+        &self,
+        merkle_tree_struct: MerkleTreeStructure,
+        file_hash: &String,
+        file_name: &String,
+        file_size: usize,
+        data_shards: usize,
+        parity_shards: usize,
+        file_dir: &Path,
+        tier: u8,
+        segment_size: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let now: DateTime<Utc> = Utc::now();
+
+        let manifest = json!({
+            "original_hash": file_hash,
+            "name": file_name,
+            "size": file_size,
+            "time_of_creation":  now.to_string(),
+            "erasure_coding": {
+                "type": "reed-solomon",
+                "data_shards": data_shards,
+                "parity_shards": parity_shards,
+            },
+            "merkle_tree": merkle_tree_struct,
             "tier": tier,
             "segment_size":segment_size,
         })

@@ -245,7 +245,6 @@ impl BlockframeApi {
                 }
                 let parity_bytes = fs::read(store.get_parity_path_t3(
                     &file_obj,
-                    segment_id.0.unwrap(),
                     block_id.0.unwrap(),
                     parity_id.0.unwrap(),
                 ))
