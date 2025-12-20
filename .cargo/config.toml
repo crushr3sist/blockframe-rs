@@ -1,6 +1,8 @@
-[env]
+[target.x86_64-pc-windows-msvc.env]
 WINFSP_NO_BINDGEN = "1"
 WINFSP_SYS_NO_BINDGEN = "1"
+target = "x86_64-pc-windows-msvc"
 
-[build]
+
+[target.x86_64-unknown-linux-gnu.env]
 target = "x86_64-unknown-linux-gnu"
