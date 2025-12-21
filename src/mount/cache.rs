@@ -1,4 +1,5 @@
 use lru::LruCache;
+use tracing::error;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -17,18 +18,21 @@ pub struct CacheStats {
 
 impl SegmentCache {
     pub fn new(capacity: usize) -> Self {
+        let item_capacity = NonZeroUsize::new(capacity).expect("Cache capacity cannot be zero");
         Self {
-            cache: LruCache::new(NonZeroUsize::new(capacity).unwrap()),
+            cache: LruCache::new(item_capacity),
             max_bytes: usize::MAX,
             current_bytes: 0,
         }
     }
+
     pub fn new_with_byte_limit(max_bytes: usize) -> Self {
         let item_capacity = 10_000;
+        let non_zero_param =
+            NonZeroUsize::new(item_capacity).expect("Cache capacity cannot be zero");
 
         Self {
-            cache: LruCache::new(NonZeroUsize::new(item_capacity).unwrap()),
-
+            cache: LruCache::new(non_zero_param),
             max_bytes,
             current_bytes: 0,
         }
@@ -52,7 +56,7 @@ impl SegmentCache {
         // if in some insane case we have a set size thats really small,
         // then just limit putting it in
         if value_size > self.max_bytes {
-            eprintln!(
+            error!(
                 "Warning: segment size ({} bytes) exceeds cache limit ({} bytes)",
                 value_size, self.max_bytes
             )

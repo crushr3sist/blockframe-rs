@@ -62,7 +62,7 @@ impl SegmentSource for LocalSource {
         segment_id: usize,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let file = self.store.find(&filename.to_string())?;
-        let path = self.store.get_segment_path(&file, segment_id);
+        let path = self.store.get_segment_path(&file, segment_id)?;
         Ok(std::fs::read(path)?)
     }
 
@@ -75,7 +75,7 @@ impl SegmentSource for LocalSource {
         let file = self.store.find(&filename.to_string())?;
         let path = self
             .store
-            .get_block_segment_path(&file, block_id, segment_id);
+            .get_block_segment_path(&file, block_id, segment_id)?;
         Ok(std::fs::read(path)?)
     }
 
@@ -90,12 +90,14 @@ impl SegmentSource for LocalSource {
 
         match &file.manifest.tier {
             1 => {
-                let parity_bytes = fs::read(self.store.get_parity_path_t1(&file, parity_id))?;
+                let parity_bytes = fs::read(self.store.get_parity_path_t1(&file, parity_id)?)?;
                 Ok(parity_bytes)
             }
             2 => {
-                let parity_bytes =
-                    fs::read(self.store.get_parity_path_t2(&file, segment_id, parity_id))?;
+                let parity_bytes = fs::read(
+                    self.store
+                        .get_parity_path_t2(&file, segment_id, parity_id)?,
+                )?;
                 Ok(parity_bytes)
             }
             3 => {
@@ -103,7 +105,7 @@ impl SegmentSource for LocalSource {
                     block_id.ok_or_else(|| "block_id is required for tier 3 parity reads")?;
 
                 let parity_bytes =
-                    fs::read(self.store.get_parity_path_t3(&file, block_id, parity_id))?;
+                    fs::read(self.store.get_parity_path_t3(&file, block_id, parity_id)?)?;
                 Ok(parity_bytes)
             }
 
@@ -161,7 +163,7 @@ impl SegmentSource for LocalSource {
 
     fn read_data(&self, filename: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let file = self.store.find(&filename.to_string())?;
-        let file_bytes = fs::read(self.store.get_data_path(&file))?;
+        let file_bytes = fs::read(self.store.get_data_path(&file)?)?;
         Ok(file_bytes)
     }
 }

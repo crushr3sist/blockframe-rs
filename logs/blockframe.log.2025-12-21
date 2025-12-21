@@ -1,0 +1,18 @@
+{"timestamp":"2025-12-21T21:28:03.699991Z","level":"INFO","fields":{"message":"MOUNT | starting mount operation"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.700047Z","level":"INFO","fields":{"message":"MOUNT | mountpoint: \"h:/bf/\""},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.700060Z","level":"INFO","fields":{"message":"MOUNT | using local source: \"./archive_directory\""},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.700085Z","level":"INFO","fields":{"message":"MOUNT | creating filesystem"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.708107Z","level":"INFO","fields":{"message":"MOUNT | initializing WinFsp"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.708151Z","level":"INFO","fields":{"message":"MOUNT | configuring volume parameters"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.708167Z","level":"INFO","fields":{"message":"MOUNT | creating filesystem host"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:03.709396Z","level":"INFO","fields":{"message":"MOUNT | mounting to: \"h:/bf/\""},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.820033Z","level":"INFO","fields":{"message":"MOUNT | starting mount operation"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.820078Z","level":"INFO","fields":{"message":"MOUNT | mountpoint: \"h:\\\\bf\""},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.820092Z","level":"INFO","fields":{"message":"MOUNT | using local source: \"./archive_directory\""},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.820114Z","level":"INFO","fields":{"message":"MOUNT | creating filesystem"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.829940Z","level":"INFO","fields":{"message":"MOUNT | initializing WinFsp"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.829980Z","level":"INFO","fields":{"message":"MOUNT | configuring volume parameters"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.829994Z","level":"INFO","fields":{"message":"MOUNT | creating filesystem host"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.831493Z","level":"INFO","fields":{"message":"MOUNT | mounting to: \"h:\\\\bf\""},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.831780Z","level":"INFO","fields":{"message":"MOUNT | starting filesystem"},"target":"blockframe"}
+{"timestamp":"2025-12-21T21:28:32.831843Z","level":"INFO","fields":{"message":"Mounted at \"h:\\\\bf\". Press Enter to unmount."},"target":"blockframe"}

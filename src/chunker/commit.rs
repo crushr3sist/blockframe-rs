@@ -12,6 +12,7 @@ use crate::merkle_tree::{
 use crate::utils::sha256;
 use rayon::prelude::*;
 use reed_solomon_simd::ReedSolomonEncoder;
+use tracing::info;
 
 use std::io::Read;
 
@@ -76,21 +77,27 @@ impl Chunker {
         file_size: usize,
         tier: u8,
     ) -> Result<ChunkedFile, Box<dyn std::error::Error>> {
+        info!(
+            "COMMIT | (tiny) reading file from {:?} as tier {:?}",
+            file_path, tier
+        );
         let file_data = fs::read(file_path)?;
         // our tiny file needs to be round up to a multiple of 64
-
         let padded_size = ((file_data.len() + 63) / 64) * 64;
+        info!("COMMIT | (tiny) padded size {} ", padded_size);
 
         let mut padded_data = file_data.to_vec();
         padded_data.resize(padded_size, 0);
 
         let mut rs_encoder = ReedSolomonEncoder::new(1, 3, padded_size)?;
+        info!("COMMIT | (tiny) rs encoder initalised 1:3 ratio");
         // Add all data shards
         rs_encoder.add_original_shard(&padded_data)?;
         let result = rs_encoder.encode()?;
 
         // Extract parity shards
         let parity: Vec<Vec<u8>> = result.recovery_iter().map(|shard| shard.to_vec()).collect();
+        info!("COMMIT | (tiny) rs encoder initalised 1:3 ratio");
 
         let file_name = file_path
             .file_name()
@@ -98,12 +105,18 @@ impl Chunker {
             .ok_or("error getting filename")?
             .to_string();
 
+        info!("COMMIT | (tiny) confirming filename: {:?}", file_name);
+
         let file_hash = sha256(&file_data)?;
+
+        info!("COMMIT | (tiny) hash: {:?} for: {:?}", file_hash, file_name);
+
         let parirty0_hash = sha256(&parity[0])?;
         let parirty1_hash = sha256(&parity[1])?;
         let parirty2_hash = sha256(&parity[2])?;
 
         let file_trun_hash = file_hash[0..10].to_string();
+
         let file_dir = self.get_dir(&file_name, &file_hash)?;
         self.check_for_archive_dir()?;
 

@@ -257,12 +257,13 @@ impl FileStore {
             path.file_stem()
                 .and_then(|folder| folder.to_str())
                 .and_then(|folder| folder.split("_").last())
-                .and_then(|index| index.parse::<usize>().ok())
-                .unwrap_or(0)
+                .and_then(|index| index.parse::<usize>().ok()) // This returns Option<usize>
+                .unwrap_or(0) // Provide a default value if parsing fails
         });
 
         Ok(segments_folder)
     }
+    
     pub fn read_segment(&self, path: PathBuf) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         // gather all the chunks from the path
         // and gather all of the
@@ -337,17 +338,31 @@ impl FileStore {
     }
 
     /// Get path to segment for Tier 1
-    pub fn get_data_path(&self, file: &File) -> PathBuf {
-        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir.join("data.dat")
+    pub fn get_data_path(&self, file: &File) -> Result<PathBuf, std::io::Error> {
+        let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "file path has no parent directory",
+            )
+        })?;
+        Ok(file_dir.join("data.dat"))
     }
 
     /// Get path to block segment for Tier 3
-    pub fn get_segment_path(&self, file: &File, segment_id: usize) -> PathBuf {
-        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir
+    pub fn get_segment_path(
+        &self,
+        file: &File,
+        segment_id: usize,
+    ) -> Result<PathBuf, std::io::Error> {
+        let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "file path has no parent directory",
+            )
+        })?;
+        Ok(file_dir
             .join("segments")
-            .join(format!("segment_{}.dat", segment_id))
+            .join(format!("segment_{}.dat", segment_id)))
     }
 
     /// Get path to segment for Tier 2
@@ -356,37 +371,71 @@ impl FileStore {
         file: &File,
         block_id: usize,
         segment_id: usize,
-    ) -> PathBuf {
-        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir
+    ) -> Result<PathBuf, std::io::Error> {
+        let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "file path has no parent directory",
+            )
+        })?;
+        Ok(file_dir
             .join("blocks")
             .join(format!("block_{}", block_id))
             .join("segments")
-            .join(format!("segment_{}.dat", segment_id))
+            .join(format!("segment_{}.dat", segment_id)))
     }
 
     /// Get path to parity file
-    pub fn get_parity_path_t1(&self, file: &File, parity_id: usize) -> PathBuf {
-        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir.join(format!("parity_{}.dat", parity_id))
+    pub fn get_parity_path_t1(
+        &self,
+        file: &File,
+        parity_id: usize,
+    ) -> Result<PathBuf, std::io::Error> {
+        let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "file path has no parent directory",
+            )
+        })?;
+        Ok(file_dir.join(format!("parity_{}.dat", parity_id)))
     }
 
     /// Get path to parity file
-    pub fn get_parity_path_t2(&self, file: &File, segment_id: usize, parity_id: usize) -> PathBuf {
-        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir
+    pub fn get_parity_path_t2(
+        &self,
+        file: &File,
+        segment_id: usize,
+        parity_id: usize,
+    ) -> Result<PathBuf, std::io::Error> {
+        let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "file path has no parent directory",
+            )
+        })?;
+        Ok(file_dir
             .join("parity")
-            .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id))
+            .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id)))
     }
 
     /// Get path to parity file
-    pub fn get_parity_path_t3(&self, file: &File, block_id: usize, parity_id: usize) -> PathBuf {
-        let file_dir = Path::new(&file.file_data.path).parent().unwrap();
-        file_dir
+    pub fn get_parity_path_t3(
+        &self,
+        file: &File,
+        block_id: usize,
+        parity_id: usize,
+    ) -> Result<PathBuf, std::io::Error> {
+        let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "file path has no parent directory",
+            )
+        })?;
+        Ok(file_dir
             .join("blocks")
             .join(format!("block_{}", block_id))
             .join("parity")
-            .join(format!("block_parity_{}.dat", parity_id))
+            .join(format!("block_parity_{}.dat", parity_id)))
     }
 }
 

@@ -182,7 +182,7 @@ impl BlockframeFS {
                 if let Some(expected_hash) = manifest.merkle_tree.leaves.get(&0) {
                     let actual_hash = crate::utils::sha256(&data)?;
                     if actual_hash != *expected_hash {
-                        eprintln!(
+                        error!(
                             "Data corruption detected for {} (Tier 1). Attempting recovery...",
                             filename
                         );
@@ -420,7 +420,7 @@ impl Filesystem for BlockframeFS {
         match self.read_bytes(&filename, segment_size, tier, offset, actual_size as usize) {
             Ok(data) => reply.data(&data),
             Err(e) => {
-                eprintln!("Read error: {}", e);
+                error!("Read error: {}", e);
                 reply.error(libc::EIO);
             }
         }

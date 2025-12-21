@@ -13,6 +13,7 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
+    use tracing::error;
 
     /// Helper: Create a test file with specified size and random content
     fn create_test_file(dir: &Path, name: &str, size: usize) -> PathBuf {
@@ -60,7 +61,7 @@ mod tests {
 
         let result = chunker.commit(&file_path);
         if let Err(e) = &result {
-            eprintln!("Commit failed: {}", e);
+            error!("Commit failed: {}", e);
         }
         assert!(result.is_ok(), "Commit should succeed");
 

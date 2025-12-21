@@ -1,3 +1,4 @@
+use tracing::error;
 // Windows WinFSP implementation for BlockframeFS
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY};
 use winfsp::filesystem::{
@@ -12,7 +13,6 @@ use std::sync::{Arc, Mutex};
 
 use super::cache::SegmentCache;
 use super::source::SegmentSource;
-use crate::config::{Config, parse_size};
 use crate::merkle_tree::manifest::ManifestFile;
 
 // File context for open files
@@ -39,22 +39,7 @@ struct BlockframeFSInner {
 
 impl BlockframeFS {
     pub fn new(source: Box<dyn SegmentSource>) -> Result<Self> {
-        let cache_capacity: usize = match Config::load() {
-            Ok(config) => match parse_size(&config.cache.max_size) {
-                Ok(bytes) => {
-                    println!("Cache configured for {} bytes", bytes);
-                    bytes
-                }
-                Err(e) => {
-                    eprintln!("Failed to parse max_size: {}, using 1GB default", e);
-                    1_000_000_000
-                }
-            },
-            Err(e) => {
-                eprintln!("Failed to load config: {}, using 1GB default", e);
-                1_000_000_000
-            }
-        };
+        let cache_capacity = 1_000_000_000;
         let mut inner = BlockframeFSInner {
             source,
             cache: SegmentCache::new_with_byte_limit(cache_capacity),
@@ -102,7 +87,7 @@ impl BlockframeFSInner {
             creation_time: 0,
             last_access_time: 0,
             last_write_time: 0,
-            change_time: 0,
+            change_time: 0, // TODO: Get from manifest
             index_number: *self.filename_to_inode.get(filename).unwrap_or(&0),
             hard_links: 1,
             ea_size: 0,
@@ -165,7 +150,10 @@ impl FileSystemContext for BlockframeFS {
             });
         }
 
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let clean_name = filename.trim_start_matches('\\');
 
         if inner.manifests.contains_key(clean_name) {
@@ -210,7 +198,10 @@ impl FileSystemContext for BlockframeFS {
             });
         }
 
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let clean_name = filename.trim_start_matches('\\');
 
         if let Some(info) = inner.get_file_info(clean_name) {
@@ -236,7 +227,10 @@ impl FileSystemContext for BlockframeFS {
         offset: u64,
     ) -> Result<u32> {
         let manifest = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self
+                .inner
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             match inner.manifests.get(&file_context.filename) {
                 Some(manifest) => manifest.clone(),
                 None => return Err(FspError::NTSTATUS(-1073741772)),
@@ -258,7 +252,10 @@ impl FileSystemContext for BlockframeFS {
 
             // FIXED: Arc is scoped and drops immediately after copy
             let copy_len = {
-                let mut inner = self.inner.lock().unwrap();
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let segment_data = inner
                     .read_from_source(&file_context.filename, segment_index, manifest.tier)
                     .map_err(|_| FspError::NTSTATUS(-1073741772))?;
@@ -290,20 +287,29 @@ impl FileSystemContext for BlockframeFS {
             return Err(FspError::NTSTATUS(-1073741808));
         }
 
-        let dir_buffer = file_context.dir_buffer.as_ref().unwrap();
+        let dir_buffer = file_context
+            .dir_buffer
+            .as_ref()
+            .expect("dir_buffer must be initialized before use");
 
         if let Ok(dir_buffer_lock) = dir_buffer.acquire(marker.is_none(), None) {
-            let inner = self.inner.lock().unwrap();
-            let mut dir_info: DirInfo<255> = DirInfo::new();
+            let inner = self
+                .inner
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut dir_info: DirInfo = DirInfo::new();
             for filename in inner.manifests.keys() {
-                if let Some(file_info) = inner.get_file_info(filename) {
+                if let Some(mut file_info) = inner.get_file_info(filename) {
                     dir_info.reset();
-                    let file_name_u16 = U16CString::from_str(filename).unwrap();
+                    let file_name_u16 = match U16CString::from_str(filename) {
+                        Ok(name) => name,
+                        Err(_) => continue,
+                    };
                     if dir_info.set_name_cstr(&file_name_u16).is_err() {
                         // filename too long, just skip it
                         continue;
                     }
-                    *dir_info.file_info_mut() = file_info;
+                    *dir_info.file_info_mut() = file_info.clone();
 
                     if dir_buffer_lock.write(&mut dir_info).is_err() {
                         // buffer is full
@@ -321,7 +327,10 @@ impl FileSystemContext for BlockframeFS {
         file_context: &Self::FileContext,
         file_info: &mut FileInfo,
     ) -> Result<()> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         if file_context.filename == "\\" {
             *file_info = FileInfo {

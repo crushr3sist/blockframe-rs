@@ -1,5 +1,6 @@
 // use reed_solomon_simd::ReedSolomonEncoder;
 use std::{
+    error::Error,
     fs,
     path::{Path, PathBuf},
 };
@@ -356,19 +357,27 @@ impl FileStore {
             let block_name = block_dir
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("unknown");
-            let segments_dir = block_dir.join("segments");
+                .ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::NotFound, "Block name not found")
+                })?;
+            let segments_dir = block_dir.join("segments"); // Corrected: Use block_dir
             let parity_dir = block_dir.join("parity");
 
             // Count existing segments
             let existing_segments: Vec<_> = fs::read_dir(&segments_dir)?
                 .filter_map(|e| e.ok())
-                .filter(|e| {
-                    e.path()
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.starts_with("segment_") && s.ends_with(".dat"))
-                        .unwrap_or(false)
+                .filter_map(|e| {
+                    // Avoid borrowing from a temporary PathBuf returned by `e.path()`
+                    // by converting the file name into an owned String.
+                    if let Ok(name) = e.file_name().into_string() {
+                        if name.starts_with("segment_") && name.ends_with(".dat") {
+                            Some(e)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 
@@ -602,7 +611,7 @@ impl FileStore {
             let shard_len = parity_chunks
                 .first()
                 .map(|chunk| chunk.len())
-                .unwrap_or(file_obj.manifest.segment_size as usize);
+                .ok_or_else(|| format!("Parity chunks are empty for segment {}", segment_idx))?;
 
             let mut recovery_decoder = ReedSolomonDecoder::new(1, parity_shards, shard_len)?;
 
@@ -663,7 +672,7 @@ impl FileStore {
                         .file_name()
                         .and_then(|n| n.to_str())
                         .map(|s| s.starts_with("segment_") && s.ends_with(".dat"))
-                        .unwrap_or(false)
+                        .unwrap_or_else(|| false)
                 })
                 .collect();
 
@@ -718,7 +727,7 @@ impl FileStore {
             }
 
             // Determine shard size (all shards in a block are same size)
-            let shard_size = parity_data.first().map(|p| p.len()).unwrap_or(segment_size);
+            let shard_size = parity_data.first().map(|p| p.len()).unwrap_or_else(||segment_size);
 
             // Create decoder
             let mut decoder = ReedSolomonDecoder::new(segment_count, parity_shards, shard_size)?;

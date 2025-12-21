@@ -76,7 +76,7 @@ pub fn determine_segment_size(file_size: u64) -> Result<usize, std::io::Error> {
 /// # Examples
 ///
 /// ```
-/// let available = blockframe::utils::detect_available_memory().unwrap();
+/// let available = blockframe::utils::detect_available_memory().unwrap()
 /// assert!(available > 0);
 /// ```
 pub fn detect_available_memory() -> Result<u64, std::io::Error> {
