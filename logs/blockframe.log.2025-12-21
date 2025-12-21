@@ -19,3 +19,32 @@
 2025-12-21T22:48:04.139886Z  INFO blockframe: MOUNT | starting mount operation
 2025-12-21T22:48:04.139925Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
 2025-12-21T22:48:04.139938Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:27:42.003689Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:27:42.003731Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:27:42.003782Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:27:42.004009Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:28:19.936978Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:28:19.936999Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:28:19.937014Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:28:19.937067Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:30:07.121758Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:30:07.121795Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:30:07.121808Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:30:07.121840Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:30:28.995459Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:30:28.995479Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:30:28.995489Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:30:28.995542Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:38:38.341828Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:38:38.341849Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:38:38.341859Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:38:38.341903Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:38:50.716775Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:38:50.716806Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:38:50.716819Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
+2025-12-21T23:38:50.716945Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:43:14.181080Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:43:14.181111Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T23:43:14.181270Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080
+2025-12-21T23:43:14.181332Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:43:14.208800Z ERROR blockframe: Mountpoint appears to be stale. Attempting cleanup...
