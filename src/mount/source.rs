@@ -1,5 +1,6 @@
 use crate::filestore::FileStore;
 use crate::merkle_tree::manifest::ManifestFile;
+use serde_json::Value; // Can also use your custom struct
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -170,29 +171,40 @@ impl SegmentSource for LocalSource {
 
 pub struct RemoteSource {
     base_url: String,
-    client: reqwest::blocking::Client,
+    agent: ureq::Agent,
 }
 
 impl RemoteSource {
     pub fn new(base_url: String) -> Self {
-        Self {
-            base_url,
-            client: reqwest::blocking::Client::new(),
-        }
+        let agent = ureq::Agent::new_with_defaults();
+
+        Self { base_url, agent }
     }
 }
 
 impl SegmentSource for RemoteSource {
     fn list_files(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let url = format!("{}/api/files", self.base_url);
-        let response = self.client.get(&url).send()?;
-        Ok(response.json()?)
+        let response: Vec<String> = self
+            .agent
+            .get(&url)
+            .call()?
+            .body_mut()
+            .with_config()
+            .read_json()?;
+        Ok(response)
     }
 
     fn get_manifest(&self, filename: &str) -> Result<ManifestFile, Box<dyn std::error::Error>> {
         let url = format!("{}/api/files/{}/manifest", self.base_url, filename);
-        let response = self.client.get(&url).send()?;
-        Ok(response.json()?)
+        let response = self
+            .agent
+            .get(&url)
+            .call()?
+            .body_mut()
+            .with_config()
+            .read_json()?;
+        Ok(response)
     }
 
     fn read_segment(
@@ -204,9 +216,18 @@ impl SegmentSource for RemoteSource {
             "{}/api/files/{}/segment/{}",
             self.base_url, filename, segment_id
         );
-        let response = self.client.get(&url).send()?;
-        Ok(response.bytes()?.to_vec())
+
+        let response: Vec<u8> = self
+            .agent
+            .get(&url)
+            .call()?
+            .body_mut()
+            .with_config()
+            .read_to_vec()?;
+
+        Ok(response)
     }
+
     fn read_block_segment(
         &self,
         filename: &str,
@@ -217,9 +238,17 @@ impl SegmentSource for RemoteSource {
             "{}/api/files/{}/block/{}/segment/{}",
             self.base_url, filename, block_id, segment_id
         );
-        let response = self.client.get(&url).send()?;
-        Ok(response.bytes()?.to_vec())
+        let response: Vec<u8> = self
+            .agent
+            .get(&url)
+            .call()?
+            .body_mut()
+            .with_config()
+            .read_to_vec()?;
+
+        Ok(response)
     }
+
     fn read_parity(
         &self,
         filename: &str,
@@ -235,8 +264,15 @@ impl SegmentSource for RemoteSource {
             segment_id,
             parity_id
         );
-        let response = self.client.get(&url).send()?;
-        Ok(response.bytes()?.to_vec())
+        let response: Vec<u8> = self
+            .agent
+            .get(&url)
+            .call()?
+            .body_mut()
+            .with_config()
+            .read_to_vec()?;
+
+        Ok(response)
     }
 
     fn write_parity(
@@ -253,13 +289,19 @@ impl SegmentSource for RemoteSource {
             block_id.unwrap(),
             segment_id,
         );
-        let response = self.client.get(&url).send()?;
+        self.agent.get(&url).call()?;
         Ok(true)
     }
 
     fn read_data(&self, filename: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let url = format!("{}/api/files/{}/", self.base_url, filename);
-        let response = self.client.get(&url).send()?;
-        Ok(response.bytes()?.to_vec())
+        let response: Vec<u8> = self
+            .agent
+            .get(&url)
+            .call()?
+            .body_mut()
+            .with_config()
+            .read_to_vec()?;
+        Ok(response)
     }
 }
