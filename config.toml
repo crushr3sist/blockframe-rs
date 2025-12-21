@@ -1,0 +1,13 @@
+
+[cache]
+# 1 segment = 32mb
+max_segments = 100
+
+# Supports KB, MB, GB
+max_size = "1GB"
+
+[server]
+default_port = 8080
+
+[logging]
+level = "info"

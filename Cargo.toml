@@ -37,6 +37,7 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
 clap = { version = "4.5.53", features = ["derive"] }
 parking_lot = "0.12.5"
+toml = "0.9.10"
 
 # linux only
 [target.'cfg(unix)'.dependencies]
@@ -62,9 +63,18 @@ features = ["full", "windows-61"]
 [build-dependencies]
 winfsp = "0.12"
 
-[profile.release]
-debug = true  # Enable symbols for profiling
-opt-level = 3 # Still fully optimized
+# [profile.release]
+# opt-level = 3     # Default. Optimize for speed.
+# lto = "fat"       # Link Time Optimization.
+# codegen-units = 1 # Maximize optimization unit size.
+# panic = "abort"   # Remove stack unwinding.
+
+# # NEW: Exclude FFI crates from LTO
+# [profile.release.package.winfsp]
+# opt-level = 2      # Still optimize, but less aggressively
+# lto = false        # NO link-time optimization for this crate
+# codegen-units = 16 # Allow parallel codegen
+
 
 [dev-dependencies]
 tempfile = "3.23.0"

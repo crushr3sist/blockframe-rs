@@ -6,3 +6,17 @@ target = "x86_64-pc-windows-msvc"
 
 [target.x86_64-unknown-linux-gnu.env]
 target = "x86_64-unknown-linux-gnu"
+
+
+[cache]
+# 1 segment = 32mb
+max_segments = 100
+
+# Supports KB, MB, GB
+max_size = "1GB"
+
+[server]
+default_port = 8080
+
+[logging]
+level = "info"

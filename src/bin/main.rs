@@ -9,10 +9,12 @@ use blockframe::{
 };
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
-
+use tracing::{debug, error, info, warn};
+use tracing_subscriber;
 #[derive(Parser)]
 #[command(name = "blockframe")]
 #[command(about = "erasure-coded storage with transparent file access")]
+#[command(arg_required_else_help = true)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -20,47 +22,77 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    // commit a file to the archive
+    /// Commit a specific file to the archive.
+    ///
+    /// This will break the file into chunks, apply erasure coding, and
+    /// save it to the archive directory.
     Commit {
+        /// The source file to upload.
         #[arg(short, long)]
         file: PathBuf,
+        /// Directory where chunks are stored.
         #[arg(short, long, default_value = "archive_directory")]
         archive: PathBuf,
     },
 
-    // start HTTP server to serve archive
+    /// Start an HTTP server to serve the archive.
+    ///
+    /// Allows users to browse and download files via a web browser.
     Serve {
+        /// Directory where chunks are stored.
         #[arg(short, long, default_value = "archive_directory")]
         archive: PathBuf,
 
-        #[arg(short, long, default_value = "8080")]
+        /// Port to bind the server to.
+        #[arg(short, long, default_value_t = 8080)]
         port: u16,
     },
 
-    // Mount archive as filesystem
+    /// Mount the archive as a virtual filesystem.
+    ///
+    /// This mounts the archive as a Read-Only filesystem, allowing transparent access
+    /// to files without manually restoring them.
     Mount {
+        /// The location to mount the filesystem (e.g., /tmp/blockframe).
         #[arg(short, long)]
         mountpoint: PathBuf,
-        #[arg(short, long)]
+        /// Path to a local archive directory.
+        #[arg(
+            short,
+            long,
+            conflicts_with = "remote",
+            required_unless_present = "archive"
+        )]
         archive: Option<PathBuf>,
-        #[arg(short, long)]
+        /// URL of a remote blockframe server.
+        #[arg(
+            short,
+            long,
+            conflicts_with = "archive",
+            required_unless_present = "archive"
+        )]
         remote: Option<String>,
     },
 
-    // check health of all files
+    /// Check the health of all files and attempt repairs.
+    ///
+    /// Scans all file manifests and chunks. If chunks are missing but enough
+    /// parity chunks exist, the file will be repaired.
     Health {
+        /// Directory where chunks are stored.
         #[arg(short, long, default_value = "archive_directory")]
         archive: PathBuf,
     },
 }
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    tracing_subscriber::fmt::init();
+
     let chunker = Chunker::new()?;
-    winfsp::winfsp_init_or_die();
 
     match cli.command {
-        //SECTION already implimented
         Commands::Commit { file, archive } => {
             // use existing Chunker
             let _ = chunker.commit(&file)?;
@@ -70,51 +102,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Health { archive } => {
             let store = FileStore::new(&archive)?;
             let batch_report = store.batch_health_check()?;
-            println!("=== BATCH HEALTH CHECK RESULTS ===");
-            println!("Total files: {}", batch_report.total_files);
-            println!("  Healthy: {}", batch_report.healthy);
-            println!("  Degraded: {}", batch_report.degraded);
-            println!("  Recoverable: {}", batch_report.recoverable);
-            println!("  Unrecoverable: {}", batch_report.unrecoverable);
-            println!();
+            info!("=== BATCH HEALTH CHECK RESULTS ===");
+            info!("Total files: {}", batch_report.total_files);
+            info!("  Healthy: {}", batch_report.healthy);
+            info!("  Degraded: {}", batch_report.degraded);
+            info!("  Recoverable: {}", batch_report.recoverable);
+            info!("  Unrecoverable: {}", batch_report.unrecoverable);
 
             // Attempt repairs on any recoverable files
             if batch_report.recoverable > 0 || batch_report.degraded > 0 {
-                println!("=== ATTEMPTING REPAIRS ===");
+                info!("=== ATTEMPTING REPAIRS ===");
                 for (filename, report) in &batch_report.reports {
                     if report.status != blockframe::filestore::models::HealthStatus::Healthy {
-                        println!("Repairing {}...", filename);
+                        info!("Repairing {}...", filename);
                         let file = store.find(filename)?;
                         match store.repair(&file) {
-                            Ok(_) => println!("  ✓ Repair completed"),
-                            Err(e) => println!("  ✗ Repair failed: {}", e),
+                            Ok(_) => info!("  ✓ Repair completed"),
+                            Err(e) => info!("  ✗ Repair failed: {}", e),
                         }
                     }
                 }
-                println!();
 
                 // Re-check health after repairs
-                println!("=== POST-REPAIR HEALTH CHECK ===");
+                info!("=== POST-REPAIR HEALTH CHECK ===");
                 let post_repair = store.batch_health_check()?;
-                println!(
+                info!(
                     "Healthy: {}/{}",
                     post_repair.healthy, post_repair.total_files
                 );
-                println!("Recoverable: {}", post_repair.recoverable);
-                println!("Unrecoverable: {}", post_repair.unrecoverable);
+                info!("Recoverable: {}", post_repair.recoverable);
+                info!("Unrecoverable: {}", post_repair.unrecoverable);
             } else {
-                println!("=== ALL FILES HEALTHY ===");
-                println!("No repairs needed!");
+                info!("=== ALL FILES HEALTHY ===");
+                info!("No repairs needed!");
             }
             Ok(())
         }
 
         //SECTION to be implimented
         Commands::Serve { archive, port } => {
-            println!("archive directory set for: {:?}", Path::new(&archive));
-            println!("CWD: {:?}", std::env::current_dir());
-            run_server(archive, port).await?;
-            Ok(())
+            info!("archive directory set for: {:?}", Path::new(&archive));
+            info!("CWD: {:?}", std::env::current_dir());
+            let config_port = option_env!("port").and_then(|s| s.parse().ok());
+            if let Some(p) = config_port {
+                run_server(archive, p).await?;
+                Ok(())
+            } else {
+                run_server(archive, port).await?;
+                Ok(())
+            }
         }
 
         Commands::Mount {
@@ -135,6 +171,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             #[cfg(target_os = "windows")]
             {
+                winfsp::winfsp_init_or_die();
+
                 use std::io::{self, Read};
                 use winfsp::host::VolumeParams;
 
@@ -153,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 host.mount(&mountpoint)?;
                 host.start()?;
 
-                println!("Mounted at {:?}. Press Enter to unmount.", mountpoint);
+                info!("Mounted at {:?}. Press Enter to unmount.", mountpoint);
                 io::stdin().read_exact(&mut [0u8]).unwrap();
                 // unmount is handled by Drop
             }

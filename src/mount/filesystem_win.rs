@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use super::cache::SegmentCache;
 use super::source::SegmentSource;
+use crate::config::{Config, parse_size};
 use crate::merkle_tree::manifest::ManifestFile;
 
 // File context for open files
@@ -38,9 +39,25 @@ struct BlockframeFSInner {
 
 impl BlockframeFS {
     pub fn new(source: Box<dyn SegmentSource>) -> Result<Self> {
+        let cache_capacity: usize = match Config::load() {
+            Ok(config) => match parse_size(&config.cache.max_size) {
+                Ok(bytes) => {
+                    println!("Cache configured for {} bytes", bytes);
+                    bytes
+                }
+                Err(e) => {
+                    eprintln!("Failed to parse max_size: {}, using 1GB default", e);
+                    1_000_000_000
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to load config: {}, using 1GB default", e);
+                1_000_000_000
+            }
+        };
         let mut inner = BlockframeFSInner {
             source,
-            cache: SegmentCache::new(100),
+            cache: SegmentCache::new_with_byte_limit(cache_capacity),
             inode_to_filename: HashMap::new(),
             filename_to_inode: HashMap::new(),
             next_inode: 2, // 1 is root
@@ -54,8 +71,6 @@ impl BlockframeFS {
             inner: Arc::new(Mutex::new(inner)),
         })
     }
-
-
 }
 
 impl BlockframeFSInner {
@@ -241,17 +256,21 @@ impl FileSystemContext for BlockframeFS {
             let segment_index = (current_offset / segment_size) as usize;
             let segment_offset = (current_offset % segment_size) as usize;
 
-            let segment_data = {
+            // FIXED: Arc is scoped and drops immediately after copy
+            let copy_len = {
                 let mut inner = self.inner.lock().unwrap();
-                inner
+                let segment_data = inner
                     .read_from_source(&file_context.filename, segment_index, manifest.tier)
-                    .map_err(|_| FspError::NTSTATUS(-1073741772))?
-            };
+                    .map_err(|_| FspError::NTSTATUS(-1073741772))?;
 
-            let copy_len = (segment_data.len() - segment_offset).min(bytes_to_read - bytes_read);
+                let len = (segment_data.len() - segment_offset).min(bytes_to_read - bytes_read);
 
-            buffer[bytes_read..bytes_read + copy_len]
-                .copy_from_slice(&segment_data[segment_offset..segment_offset + copy_len]);
+                // Copy data while holding Arc
+                buffer[bytes_read..bytes_read + len]
+                    .copy_from_slice(&segment_data[segment_offset..segment_offset + len]);
+
+                len
+            }; // Arc drops HERE - refcount back to 1, LRU can evict
 
             bytes_read += copy_len;
             current_offset += copy_len as u64;

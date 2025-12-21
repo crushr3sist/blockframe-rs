@@ -724,7 +724,7 @@ impl Chunker {
             1 => self.commit_tiny(file_path, file_size, tier)?,
             2 => self.commit_segmented(file_path, tier)?,
             3 => self.commit_blocked(file_path, tier)?,
-            4 => self.commit_segmented(file_path, tier)?,
+            4 => self.commit_blocked(file_path, tier)?,
             _ => self.commit_segmented(file_path, tier)?,
         };
 
