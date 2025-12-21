@@ -2,6 +2,7 @@ use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
+use tracing::error;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::time::{Duration, SystemTime};
@@ -174,8 +175,7 @@ impl BlockframeFS {
         // tier 1: whole file is one segment
         if tier == 1 {
             let mut data = self
-                .cache
-                .get_or_fetch(filename, 0, || self.source.read_data(filename))?;
+                .cache.get_or_fetch(filename, 0, || self.source.read_data(filename))?.to_vec();
 
             // Verify integrity for Tier 1
             if let Some(manifest) = self.manifests.get(filename) {
@@ -209,7 +209,7 @@ impl BlockframeFS {
                 let block_id = segment_id / 30;
                 let segment_in_block = segment_id % 30;
                 self.cache.get_or_fetch(
-                    &format!("{}:block{}:seg{}", filename, block_id, segment_in_block),
+                    &format!("{}:block{}:seg{}", filename, block_id, segment_in_block), // The key for caching
                     segment_id,
                     || {
                         self.source
@@ -217,7 +217,7 @@ impl BlockframeFS {
                     },
                 )?
             } else {
-                self.cache.get_or_fetch(filename, segment_id, || {
+                self.cache.get_or_fetch(filename, segment_id, || { // The key for caching
                     self.source.read_segment(filename, segment_id)
                 })?
             };
@@ -255,11 +255,11 @@ impl BlockframeFS {
                 let block_id = segment_id / 30;
                 if actual_hash != *expected_hash {
                     segment_data =
-                        self.recover_segment(filename, manifest, segment_id, Some(block_id))?;
+                        self.recover_segment(filename, manifest, segment_id, Some(block_id))?.into();
                 }
             } else {
                 if actual_hash != *expected_hash {
-                    segment_data = self.recover_segment(filename, manifest, segment_id, None)?;
+                    segment_data = self.recover_segment(filename, manifest, segment_id, None)?.into();
                 }
             }
 

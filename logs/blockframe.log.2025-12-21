@@ -16,3 +16,6 @@
 {"timestamp":"2025-12-21T21:28:32.831493Z","level":"INFO","fields":{"message":"MOUNT | mounting to: \"h:\\\\bf\""},"target":"blockframe"}
 {"timestamp":"2025-12-21T21:28:32.831780Z","level":"INFO","fields":{"message":"MOUNT | starting filesystem"},"target":"blockframe"}
 {"timestamp":"2025-12-21T21:28:32.831843Z","level":"INFO","fields":{"message":"Mounted at \"h:\\\\bf\". Press Enter to unmount."},"target":"blockframe"}
+2025-12-21T22:48:04.139886Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T22:48:04.139925Z  INFO blockframe: MOUNT | mountpoint: "/tmp/bf"
+2025-12-21T22:48:04.139938Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080/
