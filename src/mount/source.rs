@@ -1,9 +1,23 @@
 use crate::filestore::FileStore;
 use crate::merkle_tree::manifest::ManifestFile;
-use serde_json::Value; // Can also use your custom struct
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+// NEW: Match server's FileInfo response
+
+#[derive(Debug, Deserialize, Serialize)]
+struct FileInfoResponse {
+    name: String,
+    size: i64,
+    tier: u8,
+}
+
+// NEW: Match server's manifest response wrapper
+#[derive(Debug, Deserialize)]
+struct ManifestResponse {
+    manifest: ManifestFile,
+}
 
 pub trait SegmentSource: Send + Sync {
     fn list_files(&self) -> Result<Vec<String>, Box<dyn std::error::Error>>;
@@ -52,6 +66,7 @@ impl SegmentSource for LocalSource {
         let files = self.store.get_all()?;
         Ok(files.iter().map(|f| f.file_name.clone()).collect())
     }
+
     fn get_manifest(&self, filename: &str) -> Result<ManifestFile, Box<dyn std::error::Error>> {
         let file = self.store.find(&filename.to_string())?;
         Ok(file.manifest)
@@ -184,7 +199,7 @@ impl RemoteSource {
 
 impl SegmentSource for RemoteSource {
     fn list_files(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let url = format!("{}/api/files", self.base_url);
+        let url = format!("{}/files", self.base_url);
         let response: Vec<String> = self
             .agent
             .get(&url)
@@ -196,7 +211,7 @@ impl SegmentSource for RemoteSource {
     }
 
     fn get_manifest(&self, filename: &str) -> Result<ManifestFile, Box<dyn std::error::Error>> {
-        let url = format!("{}/api/files/{}/manifest", self.base_url, filename);
+        let url = format!("{}/files/{}/manifest", self.base_url, filename);
         let response = self
             .agent
             .get(&url)
@@ -213,7 +228,7 @@ impl SegmentSource for RemoteSource {
         segment_id: usize,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let url = format!(
-            "{}/api/files/{}/segment/{}",
+            "{}/files/{}/segment/{}",
             self.base_url, filename, segment_id
         );
 
@@ -235,7 +250,7 @@ impl SegmentSource for RemoteSource {
         segment_id: usize,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let url = format!(
-            "{}/api/files/{}/block/{}/segment/{}",
+            "{}/files/{}/block/{}/segment/{}",
             self.base_url, filename, block_id, segment_id
         );
         let response: Vec<u8> = self
@@ -257,7 +272,7 @@ impl SegmentSource for RemoteSource {
         block_id: Option<usize>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let url = format!(
-            "{}/api/files/{}/parity?block_id={}&segment_id={}&parity_id={}",
+            "{}/files/{}/parity?block_id={}&segment_id={}&parity_id={}",
             self.base_url,
             filename,
             block_id.unwrap(),
@@ -283,7 +298,7 @@ impl SegmentSource for RemoteSource {
         recovered_bytes: &Vec<u8>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let url = format!(
-            "{}/api/files/{}/parity?block_id={}&segment_id={}",
+            "{}/files/{}/parity?block_id={}&segment_id={}",
             self.base_url,
             filename,
             block_id.unwrap(),
@@ -294,7 +309,7 @@ impl SegmentSource for RemoteSource {
     }
 
     fn read_data(&self, filename: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let url = format!("{}/api/files/{}/", self.base_url, filename);
+        let url = format!("{}/files/{}/", self.base_url, filename);
         let response: Vec<u8> = self
             .agent
             .get(&url)

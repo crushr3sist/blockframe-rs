@@ -180,6 +180,7 @@ impl BlockframeApi {
     }
 
     // get block segment (Tier 3)
+
     #[oai(
         path = "/files/:filename/block/:block_id/segment/:segment_id",
         method = "get"
