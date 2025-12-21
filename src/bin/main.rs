@@ -62,20 +62,10 @@ enum Commands {
         #[arg(short, long)]
         mountpoint: PathBuf,
         /// Path to a local archive directory.
-        #[arg(
-            short,
-            long,
-            conflicts_with = "remote",
-            required_unless_present = "archive"
-        )]
+        #[arg(short, long, conflicts_with = "remote")]
         archive: Option<PathBuf>,
         /// URL of a remote blockframe server.
-        #[arg(
-            short,
-            long,
-            conflicts_with = "archive",
-            required_unless_present = "archive"
-        )]
+        #[arg(short, long, conflicts_with = "archive")]
         remote: Option<String>,
     },
 
