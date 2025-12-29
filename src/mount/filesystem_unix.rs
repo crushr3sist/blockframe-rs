@@ -2,14 +2,15 @@ use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
-use tracing::error;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::time::{Duration, SystemTime};
+use tracing::error;
 
 use super::cache::SegmentCache;
 use super::source::SegmentSource;
 
+use crate::config::{Config, parse_size};
 use crate::merkle_tree::manifest::{self, ManifestFile};
 
 const TTL: Duration = Duration::from_secs(1);
@@ -39,9 +40,20 @@ impl BlockframeFS {
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
 
+        let (max_segments, max_bytes) = match Config::load() {
+            Ok(cfg) => (
+                cfg.cache.max_segments,
+                parse_size(&cfg.cache.max_size).unwrap_or(1_000_000_000),
+            ),
+            Err(e) => {
+                error!("Failed to load config: {}. Using defaults.", e);
+                (100, usize::MAX)
+            }
+        };
+
         let mut fs = Self {
             source,
-            cache: SegmentCache::new(100),
+            cache: SegmentCache::new_with_limits(max_segments, max_bytes),
             inode_to_filename: HashMap::new(),
             filename_to_inode: HashMap::new(),
             next_inode: 2, // 1 is root
@@ -175,7 +187,9 @@ impl BlockframeFS {
         // tier 1: whole file is one segment
         if tier == 1 {
             let mut data = self
-                .cache.get_or_fetch(filename, 0, || self.source.read_data(filename))?.to_vec();
+                .cache
+                .get_or_fetch(filename, 0, || self.source.read_data(filename))?
+                .to_vec();
 
             // Verify integrity for Tier 1
             if let Some(manifest) = self.manifests.get(filename) {
@@ -217,7 +231,8 @@ impl BlockframeFS {
                     },
                 )?
             } else {
-                self.cache.get_or_fetch(filename, segment_id, || { // The key for caching
+                self.cache.get_or_fetch(filename, segment_id, || {
+                    // The key for caching
                     self.source.read_segment(filename, segment_id)
                 })?
             };
@@ -254,12 +269,15 @@ impl BlockframeFS {
             if tier == 3 {
                 let block_id = segment_id / 30;
                 if actual_hash != *expected_hash {
-                    segment_data =
-                        self.recover_segment(filename, manifest, segment_id, Some(block_id))?.into();
+                    segment_data = self
+                        .recover_segment(filename, manifest, segment_id, Some(block_id))?
+                        .into();
                 }
             } else {
                 if actual_hash != *expected_hash {
-                    segment_data = self.recover_segment(filename, manifest, segment_id, None)?.into();
+                    segment_data = self
+                        .recover_segment(filename, manifest, segment_id, None)?
+                        .into();
                 }
             }
 

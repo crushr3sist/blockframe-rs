@@ -1,91 +1,245 @@
-# BlockFrame: Distributed, Erasure-Coded File Storage
+# BlockFrame
 
-## What is this?
+A self-hosted, erasure-coded storage engine designed to give data ownership back to the people who create it.
 
-BlockFrame is a distributed file storage system that encrypts, chunks, and distributes files across untrusted nodes with consistency guarantees. It ensures data integrity and availability through Reed-Solomon erasure coding and Merkle tree verification, making it resilient to data loss without relying on traditional backups.
+BlockFrame implements Reed-Solomon erasure coding with Merkle tree verification to provide fault-tolerant storage that can recover from disk failures, bit rot, and data corruption—without requiring backups or access to the original files. The system segments files into chunks, generates parity shards, and reconstructs missing data on demand.
 
-## Why does this exist?
+The architecture is intentionally minimal. BlockFrame runs on a Raspberry Pi or a rack-mounted server with identical behaviour. There are no external dependencies, no databases, no container orchestration requirements. A single binary reads files, encodes them, and writes segments to disk. Recovery works offline.
 
-Existing distributed storage solutions like IPFS/BitTorrent, while excellent for content addressing and peer-to-peer distribution, often lack strong, built-in consistency guarantees and fine-grained control over data resilience without complex orchestration. BlockFrame addresses this by focusing on mathematically guaranteed data reconstruction and verifiable integrity, ensuring that data survives hardware failures and bit rot even in single-machine deployments, without requiring active cluster consensus. It provides the underlying storage mathematics for fault-tolerant data, complementing rather than replacing higher-level object stores or distributed file systems.
+## Why Not MinIO?
 
-## How does it work?
+MinIO is an excellent S3-compatible object store, but it solves a different problem. MinIO provides an API layer and distributed coordination. BlockFrame provides the underlying storage mathematics.
 
-### Architecture Diagram
+| Concern                | MinIO                       | BlockFrame                      |
+| ---------------------- | --------------------------- | ------------------------------- |
+| **Purpose**            | S3-compatible API gateway   | Erasure-coded storage engine    |
+| **Minimum deployment** | 4 nodes for erasure coding  | Single machine                  |
+| **Recovery model**     | Cluster consensus           | Mathematical reconstruction     |
+| **Data format**        | Opaque object store         | Inspectable segments + manifest |
+| **Offline operation**  | Requires cluster quorum     | Fully offline capable           |
+| **Resource footprint** | ~500MB+ RAM, JVM/Go runtime | ~10MB RAM, single static binary |
 
-```mermaid
-graph LR
-    A[Client Application] --> B{Encryption (AES-256)};
-    B --> C{Chunking};
-    C --> D{Erasure Coding & Merkle Tree Generation};
-    D --> E[Distribution to Untrusted Nodes];
-    E -- Reconstruction --> F[Client Application];
+MinIO asks: _how do I serve objects across a cluster?_
+BlockFrame asks: _how do I encode data so it survives hardware failure?_
+
+They are complementary. BlockFrame could serve as MinIO's storage backend, or replace it entirely for use cases that don't require S3 compatibility.
+
+## Scope
+
+BlockFrame is the storage layer for a larger vision: a self-hosted platform where any file becomes streamable with intelligent seeking, where clients fetch only the segments they need rather than downloading entire files, and where data sovereignty is the default rather than the exception.
+
+The current implementation handles file ingestion, parity generation, and self-healing reconstruction. Future work includes an HTTP streaming server with byte-range support, a `blockframe://` protocol handler for native application integration, and distributed segment replication.
+
+---
+
+## Architecture
+
+```
++------------------------------------------------------------------------------+
+|                                PUBLIC API                                    |
+|                                                                              |
+|        commit()           find()           repair()         reconstruct()    |
+|                                                                              |
+|             CLI (binary): commit, serve, mount, health (clap)                |
+|                                                                              |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                            PROCESSING MODULES                                |
+|                                                                              |
+|   +---------------------------+        +---------------------------+         |
+|   |         CHUNKER           |        |        FILESTORE          |         |
+|   |                           |        |                           |         |
+|   |   commit_tiny   (Tier 1)  |        |   get_all                 |         |
+|   |   commit_segmented (T2)   |        |   find                    |         |
+|   |   commit_blocked (Tier 3) |        |   repair                  |         |
+|   |   generate_parity         |        |   reconstruct             |         |
+|   +---------------------------+        +---------------------------+         |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                            CORE COMPONENTS                                   |
+|                                                                              |
+|   +--------------+  +--------------+  +--------------+  +--------------+     |
+|   | REED-SOLOMON |  | MERKLE TREE  |  |   MANIFEST   |  |    UTILS     |     |
+|   |              |  |              |  |              |  |              |     |
+|   | Encoder      |  | build_tree   |  | parse        |  | blake3 hash  |     |
+|   | Decoder      |  | get_proof    |  | validate     |  | segment_size |     |
+|   | SIMD accel   |  | verify       |  | serialize    |  |              |     |
+|   +--------------+  +--------------+  +--------------+  +--------------+     |
+|   +--------------+  +--------------+                                         |
+|   |   CONFIG     |  |   LOGGING    |   (config.toml, tracing + logs)         |
+|   +--------------+  +--------------+                                         |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                               I/O LAYER                                      |
+|                                                                              |
+|        +--------------+      +--------------+      +--------------+          |
+|        |  BufWriter   |      |   memmap2    |      |    Rayon     |          |
+|        |              |      |              |      |              |          |
+|        | buffered     |      | zero-copy    |      | parallel     |          |
+|        | disk writes  |      | file reads   |      | processing   |          |
+|        +--------------+      +--------------+      +--------------+          |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                               SERVICE LAYER                                  |
+|                                                                              |
+|        +--------------+      +--------------+      +--------------+          |
+|        |  BufWriter   |      |   memmap2    |      |    Rayon     |          |
+|        |              |      |              |      |              |          |
+|        | buffered     |      | zero-copy    |      | parallel     |          |
+|        | disk writes  |      | file reads   |      | processing   |          |
+|        +--------------+      +--------------+      +--------------+          |
+|     +--------------------+   +----------------------+   +----------------+|  |
+|     | HTTP API (Poem)    |   | Mount (FUSE / WinFsp)|   | Health / Repair |  |
+|     |  /api/files        |   |  (LocalSource /      |   | CLI (daemon)    |  |
+|     |  /files/*/manifest |   |   RemoteSource)      |   |                 |  |
+|     +--------------------+   +----------------------+   +-----------------+  |
++------------------------------------------------------------------------------+
+                                    |
+                                    v
++------------------------------------------------------------------------------+
+|                              FILE SYSTEM                                     |
+|                                                                              |
+|   archive_directory/                                                         |
+|   +-- {filename}_{hash}/                                                     |
+|       +-- manifest.json      <- merkle root, hashes, metadata                |
+|       +-- segments/          <- original data in 32MB chunks                 |
+|       +-- parity/            <- reed-solomon parity shards                   |
+|       +-- blocks/            <- tier 3: groups of 30 segments                |
+|       +-- reconstructed/     <- recovered files after `reconstruct()`        |
+|       +-- logs/              <- runtime logs (logs/blockframe.log.*)         |
++------------------------------------------------------------------------------+
 ```
 
-BlockFrame operates by taking a client's file and processing it through several stages:
+### Tiers
 
-1.  **Encryption**: Files are first encrypted (e.g., AES-256) to ensure privacy before being chunked and distributed.
-2.  **Chunking**: The encrypted file is divided into fixed-size segments (e.g., 32MB).
-3.  **Erasure Coding & Merkle Tree Generation**: Each chunk, or groups of chunks, is then fed into a Reed-Solomon encoder to generate parity shards. Simultaneously, a Merkle tree is constructed from the hashes of these segments, providing verifiable integrity proofs.
-4.  **Distribution**: The data segments and their corresponding parity shards are then distributed across various storage locations, potentially untrusted nodes.
-5.  **Reconstruction**: When a file is retrieved, missing or corrupted segments can be mathematically reconstructed using the remaining data and parity shards. The Merkle tree verifies the integrity of the reconstructed data.
+| Tier | File Size    | Encoding            | Overhead | What it means                       |
+| ---- | ------------ | ------------------- | -------- | ----------------------------------- |
+| 1    | < 10 MB      | RS(1,3) whole file  | 300%     | Lose 2 of 3 copies, still recover   |
+| 2    | 10 MB – 1 GB | RS(1,3) per segment | 300%     | Each segment recovers independently |
+| 3    | 1 – 35 GB    | RS(30,3) per block  | 10%      | Lose any 3 of 33 shards per block   |
+| 4    | > 35 GB      | Hierarchical        | ~12%     | Coming soon                         |
 
-A service layer, integrating with **FUSE** (for Linux) or **WinFSP** (for Windows), allows BlockFrame archives to be mounted as native file systems, providing transparent access to the stored data. Segment ordering is managed to ensure correct reconstruction, and operations are designed to be memory-bounded, meaning RAM usage remains constant regardless of file size by utilizing techniques like memory-mapped I/O.
+Tier is picked automatically. Small files get maximum redundancy, large files get efficient block-level encoding.
 
-## How do I run it?
+---
 
-### Platform Requirements
+## Performance
 
-*   **Windows**: [WinFSP](https://winfsp.dev/) must be installed.
-*   **Linux/macOS**: [FUSE](https://github.com/libfuse/libfuse) (or macOSFUSE) development libraries must be installed.
+### Test Hardware
 
-### Build Instructions
+- **CPU:** Intel Core i5-12600KF (6P + 4E cores)
+- **RAM:** 32 GB
+- **Storage:** HDD (~88 MB/s sequential write)
+- **OS:** Windows 11 Pro
 
-```bash
-cargo build --release
+### Measured Results
+
+| File | Tier | Total Time | Throughput |
+| ---- | ---- | ---------- | ---------- |
+| 1 GB | 2    | 70 sec     | 14 MB/s    |
+| 2 GB | 3    | 77 sec     | 26 MB/s    |
+| 6 GB | 3    | 290 sec    | 21 MB/s    |
+
+The bottleneck is disk I/O. Reed-Solomon encoding is SIMD-accelerated and runs in the order of milliseconds per segment—everything else is waiting on the hard drive.
+
+### Projected Performance
+
+| Storage Type | Sequential Write | Expected Throughput | 10 GB Archive |
+| ------------ | ---------------- | ------------------- | ------------- |
+| 5400 RPM HDD | 80-100 MB/s      | 15-25 MB/s          | ~7 min        |
+| 7200 RPM HDD | 120-150 MB/s     | 30-40 MB/s          | ~4 min        |
+| SATA SSD     | 400-500 MB/s     | 100-150 MB/s        | ~80 sec       |
+| NVMe SSD     | 2000-3500 MB/s   | 300-500 MB/s        | ~25 sec       |
+
+Throughput is lower than raw disk speed due to writing multiple files (segments + parity) and Merkle tree computation. On fast storage, CPU becomes the limiter.
+
+---
+
+## How It Works
+
+**Encoding:** A file is memory-mapped and split into 32MB segments. For Tier 3, segments are grouped into blocks of 30. Reed-Solomon encoding generates parity shards for each block. A Merkle tree is built from segment hashes, and everything is written to disk with a JSON manifest.
+
+**Recovery:** The system detects corruption by comparing segment hashes against the manifest. If a segment is missing or damaged, it reads the remaining segments plus parity shards and runs RS decoding to reconstruct the original data.
+
+---
+
+## Storage Layout
+
+```
+archive_directory/{filename}_{hash}/
+├── manifest.json           # Merkle root, hashes, metadata
+├── segments/               # 32MB data chunks
+│   └── segment_N.dat
+├── parity/                 # RS parity shards
+│   └── parity_N.dat
+└── blocks/                 # Tier 3 only
+    └── block_N/
+        ├── segments/
+        └── parity/
 ```
 
-### Basic Usage Example
+---
 
-To store a file:
+## Usage
 
-```bash
-# Example: Store a file named 'my_document.pdf'
-blockframe commit my_document.pdf
+```rust
+use blockframe::{chunker::Chunker, filestore::FileStore};
+use std::path::Path;
+
+let chunker = Chunker::new()?;
+chunker.commit(Path::new("dataset.bin"))?;
+
+let store = FileStore::new(Path::new("archive_directory"))?;
+let file = store.find(&"dataset.bin".to_string())?;
+store.repair(&file)?;
 ```
 
-To retrieve/access a file (assuming a mounted BlockFrame filesystem):
+---
 
-```bash
-# Example: Access 'my_document.pdf' from the mounted filesystem
-# The mount command will vary based on OS and configuration
-# For instance, on Linux:
-# sudo blockframe mount /mnt/blockframe
-# Then you can access /mnt/blockframe/my_document.pdf
-```
+## Modules
 
-### Config File Example (`config.toml`)
+**chunker/** — File segmentation and RS encoding. Handles the commit pipeline from raw file to archived segments.
 
-```toml
-# Example configuration for BlockFrame
-archive_directory = "/path/to/your/archive" # Directory where BlockFrame stores its data
-log_level = "info" # debug, info, warn, error
-# encryption_key_path = "/path/to/your/encryption_key.bin" # Optional: Path to a file containing the encryption key
-# segment_size_mb = 32 # Optional: Size of data segments in MB (default 32)
-```
+**filestore/** — Archive operations. Scans manifests, locates files, runs repair and reconstruction.
 
-## What's the technical depth?
+**merkle_tree/** — Hash tree construction and verification. Provides O(log n) integrity proofs.
 
-*   **Async Ordering Guarantees**: Ensures that data segments are processed and reconstructed in the correct sequence, even in highly concurrent or distributed environments.
-*   **Encryption-Before-Chunking**: Guarantees data privacy by encrypting files prior to their segmentation and distribution, preventing leakage of information through chunk analysis.
-*   **Memory-Bounded Operation (Configurable)**: Utilizes memory-mapped I/O and efficient data structures to maintain a low and constant memory footprint, regardless of the size of the files being processed.
-*   **FUSE/WinFSP Integration**: Provides native filesystem interfaces for Linux/macOS (FUSE) and Windows (WinFSP), allowing BlockFrame archives to be mounted and interacted with like local drives.
-*   **Comprehensive Logging (Tracing)**: Integrates `tracing` for detailed, structured logging across all components, aiding in debugging, performance analysis, and operational monitoring.
+**utils.rs** — BLAKE3 hashing and segment size calculation.
 
-## What's not done?
+---
 
-*   **Distributed Consensus/Coordination**: While resilient to node failures, BlockFrame currently focuses on the storage layer on individual nodes. Mechanisms for distributed node consensus and automatic segment rebalancing across a dynamic cluster are future work.
-*   **HTTP Streaming Server**: An integrated HTTP server for streaming content with byte-range support is planned.
-*   **Native Protocol Handler**: Development of a `blockframe://` protocol handler for seamless integration with native applications.
-*   **Advanced Data Deduplication**: While Merkle trees aid in verifying unique data, advanced block-level deduplication is not yet implemented.
-*   **Dynamic Configuration Reloading**: Changes to `config.toml` currently require a service restart.
-*   **Comprehensive Client Libraries**: More mature client libraries for various programming languages to interact with BlockFrame archives directly.
+## Design Notes
+
+Reed-Solomon codes provide mathematically guaranteed reconstruction. RS(30,3) means 30 data shards plus 3 parity shards—any 30 of the 33 can reconstruct the original data.
+
+Memory-mapped I/O keeps RAM usage constant regardless of file size. The kernel handles paging; we just iterate through segments.
+
+BLAKE3 is used for hashing (the `sha256` function name is historical). It's faster than SHA-256 and parallelizes well.
+
+---
+
+## Roadmap
+
+HTTP streaming server, Tier 4 hierarchical encoding, async I/O, compression, encryption, distributed storage.
+
+---
+
+## Dependencies
+
+- [reed-solomon-simd](https://github.com/AndersTrier/reed-solomon-simd)
+- [blake3](https://github.com/BLAKE3-team/BLAKE3)
+- [rayon](https://github.com/rayon-rs/rayon)
+- [memmap2](https://github.com/RazrFalcon/memmap2-rs)
+- [serde](https://serde.rs/)
+
+---
+
+MIT License

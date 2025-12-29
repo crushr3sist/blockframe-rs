@@ -8,7 +8,9 @@
 use std::path::PathBuf;
 
 use crate::merkle_tree::MerkleTree;
-
+/// Builder and configuration object. Chunker class is used for setting up the paramerters for a chunking operation.
+/// Most fields are Option as those bits of data arent static.
+/// The fields which arent option, they're hardcoded
 pub struct Chunker {
     pub file_name: Option<String>,
     pub file_size: Option<usize>,
@@ -22,6 +24,9 @@ pub struct Chunker {
     pub data_shards: usize,
     pub parity_shards: usize,
 }
+/// Chunker Result struct.
+/// In contrast to Chunker, all fields are determined to be filled.
+/// Used to return the processed data.
 pub struct ChunkedFile {
     pub file_name: String,
     pub file_size: usize,
@@ -38,6 +43,7 @@ pub struct ChunkedFile {
 impl Chunker {
     /// Creates a new [`Chunker`] instance with default shard counts suitable for
     /// Reed-Solomon encoding.
+    /// Chunker is initalised so all of the chunker specific functions are accessable withint the class or through a Chunker instance.
     ///
     /// # Examples
     ///
@@ -68,7 +74,6 @@ impl Chunker {
 
 mod commit;
 mod generate;
-mod helpers;
 mod io;
 
 #[cfg(test)]

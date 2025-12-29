@@ -8,7 +8,6 @@ use poem_openapi::{
     types::ToJSON,
 };
 use serde_json::json;
-use std::path::Path as Path_Native;
 use std::{fs, sync::Arc};
 
 use crate::filestore::FileStore;
@@ -40,7 +39,7 @@ impl BlockframeApi {
         status: StatusCode,
     ) -> poem::Error {
         tracing::error!("{}: {}", msg, err);
-        poem::Error::from_string(err.to_string(), StatusCode::BAD_REQUEST)
+        poem::Error::from_string(err.to_string(), status)
     }
     // list all files in archive
     #[oai(path = "/files", method = "get")]

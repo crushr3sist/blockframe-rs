@@ -48,3 +48,13 @@
 2025-12-21T23:43:14.181270Z  INFO blockframe: MOUNT | using remote source: http://192.168.68.107:8080
 2025-12-21T23:43:14.181332Z  INFO blockframe: MOUNT | creating filesystem
 2025-12-21T23:43:14.208800Z ERROR blockframe: Mountpoint appears to be stale. Attempting cleanup...
+2025-12-21T23:46:55.554288Z  INFO blockframe: MOUNT | starting mount operation
+2025-12-21T23:46:55.554313Z  INFO blockframe: MOUNT | mountpoint: "h:\\bf"
+2025-12-21T23:46:55.554325Z  INFO blockframe: MOUNT | using remote source: http://172.29.54.98:8080
+2025-12-21T23:46:55.554437Z  INFO blockframe: MOUNT | creating filesystem
+2025-12-21T23:46:55.559062Z  INFO blockframe: MOUNT | initializing WinFsp
+2025-12-21T23:46:55.559128Z  INFO blockframe: MOUNT | configuring volume parameters
+2025-12-21T23:46:55.559144Z  INFO blockframe: MOUNT | creating filesystem host
+2025-12-21T23:46:55.561081Z  INFO blockframe: MOUNT | mounting to: "h:\\bf"
+2025-12-21T23:46:55.561421Z  INFO blockframe: MOUNT | starting filesystem
+2025-12-21T23:46:55.561478Z  INFO blockframe: Mounted at "h:\\bf". Press Enter to unmount.

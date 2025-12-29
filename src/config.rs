@@ -19,20 +19,28 @@ impl Config {
         Ok(config)
     }
 }
-
+/// Parse data unit strings for actual rust size integer
+/// Support for GB, MB and KB
 pub fn parse_size(size_str: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    // sustain the typing case, we need uppercase unit characters.
     let size_str = size_str.trim().to_uppercase();
+    // if our string actually contains the data unit, we'll proceed by getting rid of it.
     if let Some(stripped) = size_str.strip_suffix("GB") {
+        // get the number that was actually provided.
         let num: f64 = stripped
             .trim()
             .parse()
             .map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        // then lastly multiply the integer by the size indicated next to the value.
+        // if its 1gb, we'll do 1 x 1gb. and any other integer for that value.
         Ok((num * 1_000_000_000.0) as usize)
     } else if let Some(stripped) = size_str.strip_suffix("MB") {
+        // the same is done as above, we're isolating the actual integer value
         let num: f64 = stripped
             .trim()
             .parse()
             .map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        // then multiplying the integer value by the unit size. This is MB so we multiply our integer by 1 million.
         Ok((num * 1_000_000.0) as usize)
     } else if let Some(stripped) = size_str.strip_suffix("KB") {
         let num: f64 = stripped
@@ -52,6 +60,8 @@ pub fn parse_size(size_str: &str) -> Result<usize, Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
 
+    /// very simple assert test
+    /// checking to see if our strings match the actual byte values that rust needs
     #[test]
     fn test_parse_size() {
         assert_eq!(parse_size("1GB").unwrap(), 1_000_000_000);

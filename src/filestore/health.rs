@@ -1,6 +1,5 @@
 // use reed_solomon_simd::ReedSolomonEncoder;
 use std::{
-    error::Error,
     fs,
     path::{Path, PathBuf},
 };
@@ -230,7 +229,6 @@ impl FileStore {
         let parity_path = file_folder_path.join("parity");
 
         let segments_map = &file_obj.manifest.merkle_tree.segments;
-        let num_segments = segments_map.len();
         let parity_shards = file_obj.manifest.erasure_coding.parity_shards.max(0) as usize;
 
         let mut missing_data = Vec::new();
@@ -727,7 +725,10 @@ impl FileStore {
             }
 
             // Determine shard size (all shards in a block are same size)
-            let shard_size = parity_data.first().map(|p| p.len()).unwrap_or_else(||segment_size);
+            let shard_size = parity_data
+                .first()
+                .map(|p| p.len())
+                .unwrap_or_else(|| segment_size);
 
             // Create decoder
             let mut decoder = ReedSolomonDecoder::new(segment_count, parity_shards, shard_size)?;

@@ -1,7 +1,7 @@
 use lru::LruCache;
-use tracing::error;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tracing::error;
 
 pub struct SegmentCache {
     cache: LruCache<String, Arc<Vec<u8>>>,
@@ -26,19 +26,19 @@ impl SegmentCache {
         }
     }
 
-    pub fn new_with_byte_limit(max_bytes: usize) -> Self {
-        let item_capacity = 10_000;
-        let non_zero_param =
-            NonZeroUsize::new(item_capacity).expect("Cache capacity cannot be zero");
-
+    pub fn new_with_limits(capacity: usize, max_bytes: usize) -> Self {
+        let item_capacity = NonZeroUsize::new(capacity).expect("Cache capacity cannot be zero");
         Self {
-            cache: LruCache::new(non_zero_param),
+            cache: LruCache::new(item_capacity),
             max_bytes,
             current_bytes: 0,
         }
     }
-
+    /// Zero-Copy and eviction safe getter for cache.
     pub fn get(&mut self, key: &str) -> Option<Arc<Vec<u8>>> {
+        // when the cache is being accessed, we're actually returning an arc.
+        // this is done so that the data which is returned is a reference to the data inside of the arc lrucache store.
+        // since our lru-cache is a complex data structure (hashmap + linked list).
         self.cache.get(key).cloned()
     }
 
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_cache_eviction() {
-        let mut cache = SegmentCache::new_with_byte_limit(100); // 100 byte limit
+        let mut cache = SegmentCache::new_with_limits(10, 100); // 10 items, 100 byte limit
 
         // Insert 50 byte segment
         cache.put("seg1".to_string(), Arc::new(vec![0u8; 50]));

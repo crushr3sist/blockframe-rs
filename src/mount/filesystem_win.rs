@@ -1,4 +1,11 @@
-use tracing::error;
+//! # BlockframeFS Windows Implementation
+//!
+//! This module implements the Windows userspace filesystem using WinFSP.
+//!
+//! For a deep dive into the architecture, philosophy, and Windows-specific constraints
+//! (like why we use `Arc<Mutex<Inner>>`), please read `readme.md` in this directory.
+//!
+
 // Windows WinFSP implementation for BlockframeFS
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY};
 use winfsp::filesystem::{
@@ -13,6 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use super::cache::SegmentCache;
 use super::source::SegmentSource;
+use crate::config::{Config, parse_size};
 use crate::merkle_tree::manifest::ManifestFile;
 
 // File context for open files
@@ -23,6 +31,8 @@ pub struct BlockframeFileContext {
 }
 
 // Main filesystem structure
+// Windows is multi-threaded. When using the filesystem,
+// some of these source functions might be called multiple times
 pub struct BlockframeFS {
     inner: Arc<Mutex<BlockframeFSInner>>,
 }
@@ -39,10 +49,17 @@ struct BlockframeFSInner {
 
 impl BlockframeFS {
     pub fn new(source: Box<dyn SegmentSource>) -> Result<Self> {
-        let cache_capacity = 1_000_000_000;
+        let (max_segments, max_bytes) = match Config::load() {
+            Ok(cfg) => (
+                cfg.cache.max_segments,
+                parse_size(&cfg.cache.max_size).unwrap_or(1_000_000_000),
+            ),
+            Err(_) => (10_000, 1_000_000_000),
+        };
+
         let mut inner = BlockframeFSInner {
             source,
-            cache: SegmentCache::new_with_byte_limit(cache_capacity),
+            cache: SegmentCache::new_with_limits(max_segments, max_bytes),
             inode_to_filename: HashMap::new(),
             filename_to_inode: HashMap::new(),
             next_inode: 2, // 1 is root
@@ -297,9 +314,10 @@ impl FileSystemContext for BlockframeFS {
                 .inner
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            
             let mut dir_info: DirInfo = DirInfo::new();
             for filename in inner.manifests.keys() {
-                if let Some(mut file_info) = inner.get_file_info(filename) {
+                if let Some(file_info) = inner.get_file_info(filename) {
                     dir_info.reset();
                     let file_name_u16 = match U16CString::from_str(filename) {
                         Ok(name) => name,
