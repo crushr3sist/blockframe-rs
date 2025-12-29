@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+    "filesystems/ntptfs-winfsp-rs",
+    "winfsp",
+    "winfsp-sys"
+]
+
+resolver = "2"

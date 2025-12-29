@@ -1,0 +1,46 @@
+[package]
+name = "winfsp"
+version = "0.12.4+winfsp-2.1"
+edition = "2024"
+readme = "../README.md"
+license = "GPL-3.0"
+description = "Rust bindings to WinFSP"
+keywords = ["filesystem", "winfsp", "fuse"]
+categories = ["filesystem", "os::windows-apis", "api-bindings"]
+repository = "https://github.com/SnowflakePowered/winfsp-rs"
+
+[dependencies]
+winfsp-sys = { path = "../winfsp-sys", version = "0.12" }
+windows = { package = "windows", version = "0.61.1", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_WindowsProgramming", "Win32_System_Console", "Win32_System_Threading", "Win32_System_ProcessStatus", "Wdk_Foundation"] }
+
+widestring = "1"
+thiserror = "2"
+paste = "1"
+static_assertions = "1.1"
+bytemuck = "1.13"
+parking_lot = "0.12.4"
+
+windows-56 = { package = "windows", version = "0.56", features = ["Win32_Foundation"], optional = true }
+windows-60 = { package = "windows", version = "0.60", features = ["Win32_Foundation"], optional = true }
+windows-62 = { package = "windows", version = "0.62", features = ["Win32_Foundation"], optional = true }
+
+[features]
+default = ["full", "handle-util"]
+debug = []
+system = ["windows/Win32_System_Registry", "winfsp-sys/system"]
+notify = []
+build = []
+delayload = ["build"]
+docsrs = ["winfsp-sys/docsrs"]
+handle-util = []
+async-io = []
+full = ["notify", "delayload", "async-io"]
+windows-61 = []
+windows-56 = [ "dep:windows-56" ]
+windows-60 = [ "dep:windows-60" ]
+windows-62 = [ "dep:windows-62" ]
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"
+targets = []
+features = ["full", "docsrs"]
