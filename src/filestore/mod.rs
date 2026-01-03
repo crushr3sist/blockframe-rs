@@ -6,6 +6,15 @@ use crate::filestore::models::File;
 use crate::merkle_tree::MerkleTree;
 use crate::merkle_tree::manifest::ManifestFile;
 
+pub mod health;
+pub mod models;
+pub mod recovery;
+
+#[cfg(test)]
+mod health_tests;
+#[cfg(test)]
+mod tests;
+
 /// FileStore manages the archive directory and provides access to stored files.
 ///
 /// This is the main interface for interacting with archived files, including:
@@ -263,7 +272,7 @@ impl FileStore {
 
         Ok(segments_folder)
     }
-    
+
     pub fn read_segment(&self, path: PathBuf) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         // gather all the chunks from the path
         // and gather all of the
@@ -438,12 +447,3 @@ impl FileStore {
             .join(format!("block_parity_{}.dat", parity_id)))
     }
 }
-
-pub mod health;
-pub mod models;
-
-#[cfg(test)]
-mod tests;
-
-#[cfg(test)]
-mod health_tests;

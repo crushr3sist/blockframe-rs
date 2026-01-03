@@ -49,7 +49,7 @@ struct BlockframeFSInner {
 
 impl BlockframeFS {
     pub fn new(source: Box<dyn SegmentSource>) -> Result<Self> {
-        let (max_segments, max_bytes) = match Config::load() {
+        let (_max_segments, max_bytes) = match Config::load() {
             Ok(cfg) => (
                 cfg.cache.max_segments,
                 parse_size(&cfg.cache.max_size).unwrap_or(1_000_000_000),
@@ -57,9 +57,12 @@ impl BlockframeFS {
             Err(_) => (10_000, 1_000_000_000),
         };
 
+        // Convert to u64 for moka
+        let max_bytes_u64 = max_bytes as u64;
+
         let mut inner = BlockframeFSInner {
             source,
-            cache: SegmentCache::new_with_limits(max_segments, max_bytes),
+            cache: SegmentCache::new_with_limits(max_bytes_u64),
             inode_to_filename: HashMap::new(),
             filename_to_inode: HashMap::new(),
             next_inode: 2, // 1 is root
@@ -111,17 +114,85 @@ impl BlockframeFSInner {
         })
     }
 
+    fn recover_segment(
+        &self,
+        filename: &str,
+        manifest: &ManifestFile,
+        segment_id: usize,
+        block_id: Option<usize>,
+    ) -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
+        use tracing::info;
+        info!("Recovering segment {} for {}", segment_id, filename);
+
+        // Fetch parity shards
+        let parity_shards: Vec<Vec<u8>> = (0..3)
+            .map(|i| self.source.read_parity(filename, segment_id, i, block_id))
+            .collect::<std::result::Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+        // Use shared recovery logic from filestore
+        let expected_size = if manifest.tier == 1 {
+            Some(manifest.size as usize)
+        } else {
+            None
+        };
+
+        let recovered =
+            crate::filestore::recovery::recover_segment_rs13(parity_shards, expected_size)?;
+
+        // Verify recovered data
+        let expected_hash = if manifest.tier == 2 {
+            &manifest
+                .merkle_tree
+                .segments
+                .get(&segment_id)
+                .ok_or("Missing segment info in manifest")?
+                .data
+        } else if manifest.tier == 3 {
+            let block_id = block_id.ok_or("Block ID required for Tier 3 recovery")?;
+            let seg_idx = segment_id % 30;
+            manifest
+                .merkle_tree
+                .blocks
+                .get(&block_id)
+                .ok_or("Missing block info")?
+                .segments
+                .get(seg_idx)
+                .ok_or("Missing segment hash")?
+        } else {
+            // Tier 1
+            manifest
+                .merkle_tree
+                .leaves
+                .get(&(segment_id as i32))
+                .ok_or("Missing leaf hash")?
+        };
+
+        let actual_hash = crate::utils::sha256(&recovered)?;
+        if actual_hash != *expected_hash {
+            return Err("Recovery verification failed".into());
+        }
+
+        self.source
+            .write_parity(filename, segment_id, block_id, &recovered)?;
+        Ok(recovered)
+    }
+
     fn read_from_source(
         &mut self,
         filename: &str,
         segment_index: usize,
         tier: u8,
+        manifest: &ManifestFile,
     ) -> std::result::Result<Arc<Vec<u8>>, Box<dyn std::error::Error>> {
         let cache_key = format!("{}:{}", filename, segment_index);
+
+        // PERFORMANCE: Return cached data immediately without verification
+        // The cache only contains previously verified data
         if let Some(segment) = self.cache.get(&cache_key) {
             return Ok(segment);
         }
 
+        // Read from disk
         let segment_data = match tier {
             1 => self.source.read_data(filename),
             2 => self.source.read_segment(filename, segment_index),
@@ -135,7 +206,51 @@ impl BlockframeFSInner {
             _ => Err("Unsupported tier".into()),
         }?;
 
-        let segment = Arc::new(segment_data);
+        // ONLY verify hash on first read from disk (not on cached reads)
+        let expected_hash_opt = if tier == 1 {
+            manifest.merkle_tree.leaves.get(&(segment_index as i32))
+        } else if tier == 2 {
+            manifest
+                .merkle_tree
+                .segments
+                .get(&segment_index)
+                .map(|s| &s.data)
+        } else {
+            // Tier 3
+            let block_id = segment_index / 30;
+            let seg_idx = segment_index % 30;
+            manifest
+                .merkle_tree
+                .blocks
+                .get(&block_id)
+                .and_then(|b| b.segments.get(seg_idx))
+        };
+
+        // Verify integrity and recover if corrupted
+        let verified_data = if let Some(expected_hash) = expected_hash_opt {
+            let actual_hash = crate::utils::sha256(&segment_data)?;
+
+            if actual_hash != *expected_hash {
+                use tracing::error;
+                error!(
+                    "Corruption detected in {} segment {} (Tier {}). Recovering...",
+                    filename, segment_index, tier
+                );
+
+                let block_id = if tier == 3 {
+                    Some(segment_index / 30)
+                } else {
+                    None
+                };
+                self.recover_segment(filename, manifest, segment_index, block_id)?
+            } else {
+                segment_data
+            }
+        } else {
+            segment_data
+        };
+
+        let segment = Arc::new(verified_data);
         self.cache.put(cache_key, segment.clone());
         Ok(segment)
     }
@@ -267,14 +382,20 @@ impl FileSystemContext for BlockframeFS {
             let segment_index = (current_offset / segment_size) as usize;
             let segment_offset = (current_offset % segment_size) as usize;
 
-            // FIXED: Arc is scoped and drops immediately after copy
+            // PERFORMANCE: Verification happens only in read_from_source on cache miss
             let copy_len = {
                 let mut inner = self
                     .inner
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
+
                 let segment_data = inner
-                    .read_from_source(&file_context.filename, segment_index, manifest.tier)
+                    .read_from_source(
+                        &file_context.filename,
+                        segment_index,
+                        manifest.tier,
+                        &manifest,
+                    )
                     .map_err(|_| FspError::NTSTATUS(-1073741772))?;
 
                 let len = (segment_data.len() - segment_offset).min(bytes_to_read - bytes_read);
@@ -284,7 +405,7 @@ impl FileSystemContext for BlockframeFS {
                     .copy_from_slice(&segment_data[segment_offset..segment_offset + len]);
 
                 len
-            }; // Arc drops HERE - refcount back to 1, LRU can evict
+            }; // Arc drops HERE
 
             bytes_read += copy_len;
             current_offset += copy_len as u64;
@@ -314,7 +435,7 @@ impl FileSystemContext for BlockframeFS {
                 .inner
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            
+
             let mut dir_info: DirInfo = DirInfo::new();
             for filename in inner.manifests.keys() {
                 if let Some(file_info) = inner.get_file_info(filename) {

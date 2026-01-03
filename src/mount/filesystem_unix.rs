@@ -40,20 +40,23 @@ impl BlockframeFS {
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
 
-        let (max_segments, max_bytes) = match Config::load() {
+        let (_max_segments, max_bytes) = match Config::load() {
             Ok(cfg) => (
                 cfg.cache.max_segments,
                 parse_size(&cfg.cache.max_size).unwrap_or(1_000_000_000),
             ),
             Err(e) => {
                 error!("Failed to load config: {}. Using defaults.", e);
-                (100, usize::MAX)
+                (100, 1_000_000_000)
             }
         };
 
+        // Convert to u64 for moka
+        let max_bytes_u64 = max_bytes as u64;
+
         let mut fs = Self {
             source,
-            cache: SegmentCache::new_with_limits(max_segments, max_bytes),
+            cache: SegmentCache::new_with_limits(max_bytes_u64),
             inode_to_filename: HashMap::new(),
             filename_to_inode: HashMap::new(),
             next_inode: 2, // 1 is root
@@ -94,30 +97,23 @@ impl BlockframeFS {
         block_id: Option<usize>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         println!("Recovering segment {} for {}", segment_id, filename);
-        // fetch parity shards
+
+        // Fetch parity shards
         let parity_shards: Vec<Vec<u8>> = (0..3)
             .map(|i| self.source.read_parity(filename, segment_id, i, block_id))
             .collect::<Result<Vec<_>, _>>()?;
-        // Reed-Solomon decode
-        use reed_solomon_simd::ReedSolomonDecoder;
-        let shard_size = parity_shards[0].len();
-        let mut decoder = ReedSolomonDecoder::new(1, 3, shard_size)?;
 
-        // add parity shards (data is missing/corrupt)
-        decoder.add_recovery_shard(0, &parity_shards[0])?;
+        // Use shared recovery logic from filestore
+        let expected_size = if manifest.tier == 1 {
+            Some(manifest.size as usize)
+        } else {
+            None
+        };
 
-        let result = decoder.decode()?;
-        let mut recovered = result
-            .restored_original(0)
-            .ok_or("Recovery failed")?
-            .to_vec();
+        let recovered =
+            crate::filestore::recovery::recover_segment_rs13(parity_shards, expected_size)?;
 
-        // Tier 1 files are padded to 64 bytes for RS encoding, but the manifest size is the original size.
-        if manifest.tier == 1 && recovered.len() > manifest.size as usize {
-            recovered.truncate(manifest.size as usize);
-        }
-
-        // verify recovered data
+        // Verify recovered data
         let expected_hash = if manifest.tier == 2 {
             &manifest
                 .merkle_tree
@@ -149,10 +145,12 @@ impl BlockframeFS {
         if actual_hash != *expected_hash {
             return Err("Recovery verification failed".into());
         }
+
         self.source
             .write_parity(filename, segment_id, block_id, &recovered)?;
         Ok(recovered)
     }
+
     fn get_file_attr(&self, filename: &str) -> Option<FileAttr> {
         let manifest = self.manifests.get(filename)?;
         let inode = *self.filename_to_inode.get(filename)?;
@@ -218,68 +216,82 @@ impl BlockframeFS {
             let segment_id = (current_offset / segment_size) as usize;
             let offset_in_segment = (current_offset & segment_size) as usize;
 
-            // fetch segment (from cache or source)
-            let mut segment_data = if tier == 3 {
-                let block_id = segment_id / 30;
-                let segment_in_block = segment_id % 30;
-                self.cache.get_or_fetch(
-                    &format!("{}:block{}:seg{}", filename, block_id, segment_in_block), // The key for caching
-                    segment_id,
-                    || {
-                        self.source
-                            .read_block_segment(filename, block_id, segment_in_block)
-                    },
-                )?
-            } else {
-                self.cache.get_or_fetch(filename, segment_id, || {
-                    // The key for caching
-                    self.source.read_segment(filename, segment_id)
-                })?
-            };
-
             let manifest = self
                 .manifests
                 .get(&filename.to_string())
                 .ok_or("file not found in manifests hashtable line: 184 read_bytes")?;
 
-            let expected_hash_opt = if tier == 2 {
-                manifest
-                    .merkle_tree
-                    .segments
-                    .get(&segment_id)
-                    .map(|s| &s.data)
-            } else if tier == 3 {
+            // PERFORMANCE: Use get_or_fetch_verified to only verify on cache miss
+            let segment_data = if tier == 3 {
                 let block_id = segment_id / 30;
-                let seg_idx = segment_id % 30;
-                manifest
-                    .merkle_tree
-                    .blocks
-                    .get(&block_id)
-                    .and_then(|b| b.segments.get(seg_idx))
-            } else {
-                manifest.merkle_tree.leaves.get(&(segment_id as i32))
-            };
+                let segment_in_block = segment_id % 30;
+                let cache_key = format!("{}:block{}:seg{}", filename, block_id, segment_in_block);
 
-            let expected_hash = match expected_hash_opt {
-                Some(h) => h,
-                None => return Err(format!("Hash not found for segment {}", segment_id).into()),
-            };
+                // Check cache first (no verification needed)
+                if let Some(cached) = self.cache.get(&cache_key) {
+                    cached
+                } else {
+                    // Cache miss - fetch and verify
+                    let data =
+                        self.source
+                            .read_block_segment(filename, block_id, segment_in_block)?;
 
-            let actual_hash = crate::utils::sha256(&segment_data)?;
-            if tier == 3 {
-                let block_id = segment_id / 30;
-                if actual_hash != *expected_hash {
-                    segment_data = self
-                        .recover_segment(filename, manifest, segment_id, Some(block_id))?
-                        .into();
+                    let seg_idx = segment_id % 30;
+                    let expected_hash = manifest
+                        .merkle_tree
+                        .blocks
+                        .get(&block_id)
+                        .and_then(|b| b.segments.get(seg_idx))
+                        .ok_or(format!("Hash not found for segment {}", segment_id))?;
+
+                    let actual_hash = crate::utils::sha256(&data)?;
+                    let verified_data = if actual_hash != *expected_hash {
+                        error!(
+                            "Corruption in {} segment {}. Recovering...",
+                            filename, segment_id
+                        );
+                        self.recover_segment(filename, manifest, segment_id, Some(block_id))?
+                    } else {
+                        data
+                    };
+
+                    let arc_data = Arc::new(verified_data);
+                    self.cache.put(cache_key, arc_data.clone());
+                    arc_data
                 }
             } else {
-                if actual_hash != *expected_hash {
-                    segment_data = self
-                        .recover_segment(filename, manifest, segment_id, None)?
-                        .into();
+                let cache_key = format!("{}:{}", filename, segment_id);
+
+                // Check cache first (no verification needed)
+                if let Some(cached) = self.cache.get(&cache_key) {
+                    cached
+                } else {
+                    // Cache miss - fetch and verify
+                    let data = self.source.read_segment(filename, segment_id)?;
+
+                    let expected_hash = manifest
+                        .merkle_tree
+                        .segments
+                        .get(&segment_id)
+                        .map(|s| &s.data)
+                        .ok_or(format!("Hash not found for segment {}", segment_id))?;
+
+                    let actual_hash = crate::utils::sha256(&data)?;
+                    let verified_data = if actual_hash != *expected_hash {
+                        error!(
+                            "Corruption in {} segment {}. Recovering...",
+                            filename, segment_id
+                        );
+                        self.recover_segment(filename, manifest, segment_id, None)?
+                    } else {
+                        data
+                    };
+
+                    let arc_data = Arc::new(verified_data);
+                    self.cache.put(cache_key, arc_data.clone());
+                    arc_data
                 }
-            }
+            };
 
             // calculate how much we can read from this segment
             let available = segment_data.len() - offset_in_segment;

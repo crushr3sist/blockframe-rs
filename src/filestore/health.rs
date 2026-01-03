@@ -76,7 +76,7 @@ impl FileStore {
     /// Checks the health of a single file by verifying data integrity and parity availability.
     ///
     /// Routes to the appropriate tier-specific health check based on the file's tier.
-    /// Does not modify any files—purely a read-only diagnostic operation.
+    /// Does not modify any files, purely a read-only diagnostic operation.
     ///
     /// # Arguments
     ///

@@ -31,7 +31,7 @@ rayon = "1.11.0"
 poem = { version = "3.1.12", features = ["static-files", "websocket"] }
 poem-openapi = { version = "5.1.16", features = ["swagger-ui"] }
 tokio = { version = "1.48.0", features = ["full"] }
-lru = "0.16.2"
+moka = { version = "0.12", features = ["sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
 clap = { version = "4.5.53", features = ["derive"] }
@@ -39,6 +39,7 @@ parking_lot = "0.12.5"
 toml = "0.9.8"
 tracing-appender = "0.2.4"
 ureq = { version = "3.1.4", features = ["json"] }
+tempfile = "3.24.0"
 
 
 # linux only
@@ -62,21 +63,26 @@ winfsp = { version = "0.12", features = ["full", "windows-61"] }
 [target.'cfg(windows)'.build-dependencies]
 winfsp = "0.12"
 
-# [profile.release]
-# opt-level = 3     # Default. Optimize for speed.
-# lto = "fat"       # Link Time Optimization.
-# codegen-units = 1 # Maximize optimization unit size.
-# panic = "abort"   # Remove stack unwinding.
+# Improve debug build performance without sacrificing debuggability
+[profile.dev]
+opt-level = 1          # Basic optimization - huge performance gain with minimal compile time cost
+debug = true           # Keep debug symbols
+incremental = true     # Enable incremental compilation
 
-# # NEW: Exclude FFI crates from LTO
-# [profile.release.package.winfsp]
-# opt-level = 2      # Still optimize, but less aggressively
-# lto = false        # NO link-time optimization for this crate
-# codegen-units = 16 # Allow parallel codegen
+[profile.release]
+opt-level = 3          # Optimize for speed
+lto = "thin"           # Use thin LTO instead of fat - safer for FFI
+codegen-units = 16     # Allow parallel codegen - faster builds
+panic = "abort"        # Remove stack unwinding
+strip = true           # Strip symbols from binary
 
+# Ensure FFI crates are not over-optimized
+[profile.release.package.winfsp]
+opt-level = 2          # Less aggressive optimization
 
-[dev-dependencies]
-tempfile = "3.23.0"
+[profile.release.package.winfsp-sys]
+opt-level = 2          # Less aggressive optimization
+
 
 [patch.crates-io]
 winfsp-sys = { path = "./patches/winfsp-rs/winfsp-sys" }

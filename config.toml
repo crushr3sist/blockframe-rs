@@ -1,10 +1,10 @@
 
 [cache]
 # 1 segment = 32mb
-max_segments = 100
+max_segments = 200
 
 # Supports KB, MB, GB
-max_size = "1GB"
+max_size = "3GB"
 
 [server]
 default_port = 8080

@@ -1,122 +1,173 @@
-# Chunker Module
+# Chunker: File Segmentation and Erasure Coding
 
-The encoding engine of BlockFrame. Responsible for transforming files into fault-tolerant archives with Reed-Solomon erasure coding and Merkle tree integrity verification.
+The chunker transforms files into fault-tolerant archives using Reed-Solomon erasure coding and Merkle tree verification. It handles file segmentation, parity generation, and metadata persistence.
 
 ## Architecture
 
 ```
-Chunker (stateless encoder)
-    │
-    ├── commit.rs      # Tier-specific commit logic
-    ├── generate.rs    # Reed-Solomon parity generation
-    ├── io.rs          # File I/O operations
-    └── helpers.rs     # Segment hashing utilities
+chunker/
+├── commit.rs      # Entry point and tier-specific commit logic
+├── generate.rs    # Reed-Solomon parity generation
+├── io.rs          # Segment and parity disk writes
+└── tests.rs       # End-to-end commit tests
 ```
 
-## Core Types
+The chunker is stateless. Create a `Chunker`, call `commit()`, receive a `ChunkedFile` result. No session state, no hidden mutation.
 
-### `Chunker`
-
-Stateless encoder instance. Each commit operation is independent—no internal state carries between files.
-
-```rust
-let chunker = Chunker::new()?;
-let result = chunker.commit(Path::new("dataset.bin"))?;
-```
-
-### `ChunkedFile`
-
-Immutable result of a successful commit. Contains all metadata needed for later operations.
+## Output: ChunkedFile
 
 ```rust
 pub struct ChunkedFile {
     pub file_name: String,
     pub file_size: usize,
     pub file_hash: String,        // BLAKE3 hash of original file
-    pub merkle_tree: MerkleTree,  // Integrity verification structure
-    pub segment_size: usize,      // Bytes per segment
-    pub num_segments: usize,
-    pub data_shards: usize,       // RS data shard count
-    pub parity_shards: usize,     // RS parity shard count
+    pub merkle_tree: MerkleTree,  // Integrity verification tree
+    pub segment_size: usize,      // Chunk size (32MB for tiers 2-3)
+    pub num_segments: usize,      // Total segment count
+    pub data_shards: usize,       // Reed-Solomon data shard count
+    pub parity_shards: usize,     // Reed-Solomon parity shard count
 }
 ```
 
-## Commit Functions
+The hash provides file identity. The Merkle tree enables per-segment verification. The shard counts determine fault tolerance.
 
-### `commit(path) -> ChunkedFile`
+## Tier System
 
-Main entry point. Automatically selects tier based on file size:
+File size determines encoding strategy automatically.
 
-| File Size | Tier | Function Called               |
-| --------- | ---- | ----------------------------- |
-| <10MB     | 1    | `commit_tiny`                 |
-| 10MB-1GB  | 2    | `commit_segmented`            |
-| 1GB-35GB  | 3    | `commit_blocked`              |
-| >35GB     | 4    | `commit_segmented` (fallback) |
+| File Size    | Tier | Encoding        | Function           | Overhead |
+| ------------ | ---- | --------------- | ------------------ | -------- |
+| < 10 MB      | 1    | RS(1,3) whole   | `commit_tiny`      | 300%     |
+| 10 MB - 1 GB | 2    | RS(1,3) segment | `commit_segmented` | 300%     |
+| 1 GB - 35 GB | 3    | RS(30,3) block  | `commit_blocked`   | 10%      |
+| > 35 GB      | 4    | Tier 2 fallback | `commit_segmented` | 300%     |
 
-### `commit_tiny` — Tier 1
+### Tier 1: commit_tiny
 
-For files under 10MB. No segmentation—treats entire file as single shard.
+Files under 10 MB are encoded as a single unit with RS(1,3). The entire file is read into memory, encoded to produce 3 parity shards, and written to disk.
 
-**Storage:** `data.dat` + 3 parity files  
-**Encoding:** RS(1,3) — 1 data shard, 3 parity  
-**Overhead:** 300%
+**Storage Layout:**
 
-### `commit_segmented` — Tier 2
+```
+filename_hash/
+├── manifest.json
+├── data.dat         # Original file
+├── parity_0.dat     # Recovery shard 0
+├── parity_1.dat     # Recovery shard 1
+└── parity_2.dat     # Recovery shard 2
+```
 
-For files 10MB-1GB. Per-segment parity encoding.
+**Recovery:** Any single shard (data or parity) can reconstruct the original file.
+
+**Overhead:** 300% (4x total storage). A 1 MB file becomes 4 MB on disk.
+
+### Tier 2: commit_segmented
+
+Files between 10 MB and 1 GB are segmented into 32 MB chunks. Each segment receives independent RS(1,3) parity shards.
 
 **Process:**
 
-1. Memory-map file (if >10MB)
-2. Segment into 32MB chunks
+1. Memory-map the file
+2. Iterate in 32 MB segments
 3. Generate RS(1,3) parity per segment
-4. Hash segments while processing (streaming BLAKE3)
-5. Build Merkle tree from segment+parity hashes
-6. Write manifest
+4. Write segments and parity in parallel
+5. Hash each segment (streaming BLAKE3)
+6. Build Merkle tree from segment hashes
+7. Write manifest
 
-**Storage:** `segments/segment_N.dat` + `parity/segment_N_parity_M.dat`  
+**Storage Layout:**
+
+```
+filename_hash/
+├── manifest.json
+├── segments/
+│   ├── segment_0.dat
+│   ├── segment_1.dat
+│   └── ...
+└── parity/
+    ├── segment_0_parity_0.dat
+    ├── segment_0_parity_1.dat
+    ├── segment_0_parity_2.dat
+    └── ...
+```
+
+**Recovery:** Per-segment recovery. If segment 5 corrupts, only segment 5 requires reconstruction.
+
 **Overhead:** 300%
 
-### `commit_blocked` — Tier 3
+**Why 32 MB segments?** Balance between file count (OS overhead) and recovery granularity.
 
-For files 1GB-35GB. Block-level parity with parallel processing.
+### Tier 3: commit_blocked
+
+Files between 1 GB and 35 GB use block-level parity. Segments are grouped into blocks of 30, with 3 parity shards covering the entire block.
+
+**Encoding:** RS(30,3) - 30 data segments + 3 parity segments per block.
+
+**Recovery Capability:** Any 30 of 33 shards can reconstruct all 30 original segments. Can lose any 3 shards per block.
 
 **Process:**
 
 1. Memory-map entire file
-2. Group segments into blocks (30 segments per block)
-3. Pre-create all directories
-4. **Parallel:** For each block:
-   - Write 30 segments in parallel (Rayon)
-   - Generate RS(30,3) parity
-   - Build block Merkle tree
-5. Build file Merkle tree from block roots
+2. Calculate block count (file_size / (32 MB × 30))
+3. Pre-create all block directories in parallel
+4. For each block:
+   - Write 30 segments
+   - Generate 3 parity shards from all 30 segments
+   - Hash each segment
+5. Build Merkle tree from segment hashes
 6. Write manifest
 
-**Storage:** `blocks/block_N/segments/` + `blocks/block_N/parity/`  
-**Overhead:** 10%
+**Storage Layout:**
+
+```
+filename_hash/
+├── manifest.json
+└── blocks/
+    ├── block_0/
+    │   ├── segments/
+    │   │   ├── segment_0.dat
+    │   │   ├── segment_1.dat
+    │   │   └── ... (30 total)
+    │   └── parity/
+    │       ├── parity_0.dat
+    │       ├── parity_1.dat
+    │       └── parity_2.dat
+    └── block_1/
+        └── ...
+```
+
+**Overhead:** 10% (3/30 = 10%)
+
+**Parallelism:** Blocks are processed in parallel using Rayon.
+
+**Why 30 segments per block?** Optimal balance between storage efficiency (10% overhead) and recovery time.
+
+## Reed-Solomon Erasure Coding
+
+Reed-Solomon codes provide mathematically guaranteed reconstruction from partial data loss.
+
+**RS(N, K):** N data shards, K parity shards. Total N+K shards. Any N shards can reconstruct all N original shards.
+
+**Example:** RS(30,3) produces 33 total shards. Delete any 3 shards → remaining 30 can reconstruct all 30 original segments.
+
+**Constraint:** All shards must be equal size. Last segment is padded with zeros if needed. Manifest stores original size for truncation after recovery.
+
+**Implementation:** Uses `reed-solomon-simd` for SIMD-accelerated encoding.
 
 ## Parity Generation
 
-### `generate_parity_segmented(segment_data) -> Vec<Vec<u8>>`
+### generate_parity_segmented(segment_data) → Vec<Vec<u8>>
 
-RS(1,3) encoding for Tier 1/2. Takes single segment, returns 3 parity shards.
+RS(1,3) encoding for Tier 1 and Tier 2. Takes single segment, returns 3 parity shards.
 
-### `generate_parity(segments, data_shards, parity_shards) -> Vec<Vec<u8>>`
+### generate_parity(segments, data_shards, parity_shards) → Vec<Vec<u8>>
 
-Flexible RS encoding for Tier 3+. Handles variable shard counts and auto-pads segments to uniform size.
+Flexible RS encoding for Tier 3. Handles variable shard counts and automatic padding.
 
 ```rust
 // Tier 3: 30 data segments → 3 parity shards
-let parity = chunker.generate_parity(&block_segments, 30, 3)?;
+let parity = generate_parity(&block_segments, 30, 3)?;
 ```
-
-**Implementation details:**
-
-- Uses `reed-solomon-simd` for SIMD-accelerated encoding
-- Pads all segments to max segment size (RS requires uniform shard sizes)
-- Returns owned `Vec<Vec<u8>>` for immediate write
 
 ## I/O Operations
 
@@ -126,7 +177,7 @@ let parity = chunker.generate_parity(&block_segments, 30, 3)?;
 write_segment(index, dir, data) -> Result<()>
 ```
 
-Buffered write with `BufWriter::with_capacity`. Capacity matches segment size to minimize syscalls.
+Buffered write using `BufWriter` with capacity matching segment size. Reduces syscalls.
 
 ### Parity Writing
 
@@ -135,7 +186,7 @@ write_segment_parities(segment_idx, dir, parity) -> Result<()>  // Tier 2
 write_blocked_parities(dir, parity) -> Result<()>               // Tier 3
 ```
 
-Parallel writes with Rayon—3 parity files written simultaneously.
+Parallel writes using Rayon. Three parity files written simultaneously.
 
 ### Manifest Writing
 
@@ -143,57 +194,99 @@ Parallel writes with Rayon—3 parity files written simultaneously.
 write_manifest(merkle_tree, hash, name, size, ...) -> Result<()>
 ```
 
-JSON serialization of file metadata, Merkle tree, and encoding parameters.
+JSON serialization of metadata, Merkle tree, and encoding parameters. Written after all segments and parity complete.
 
 ## Hashing
 
 ### File Hash
 
-- **Tier 1/2:** Streaming BLAKE3 computed during segment iteration
-- **Tier 3:** Direct BLAKE3 of memory-mapped file (single pass)
+- **BLAKE3** used for all hashing (10-20x faster than SHA-256)
+- **Tier 1/2:** Streaming hash computed during segment iteration
+- **Tier 3:** Direct hash of memory-mapped file (single pass)
 
 ### Segment Hash
 
-```rust
-hash_single_segment(segment_data, parity) -> String
-```
+Each segment's hash is combined with its parity hashes to form Merkle tree leaves. This enables cryptographic verification of segment integrity.
 
-Merkle tree of segment + parity hashes. Used as leaf in file-level tree.
+## Memory Management
 
-## Memory Model
+### Tier 1 (< 10 MB)
 
-### Tier 1 (<10MB)
+Full file loaded into memory with `fs::read()`. Acceptable for small files.
 
-Full file loaded into memory. Acceptable for tiny files.
+### Tier 2 (10 MB - 1 GB)
 
-### Tier 2 (10MB-1GB)
+- File memory-mapped
+- Streaming hash, never loads full file
+- Single segment buffer (32 MB) in flight
+- Kernel manages page eviction
 
-- Memory-mapped if >10MB
-- Streaming hash—never loads full file
-- One segment buffer (32MB max)
+### Tier 3 (1 GB - 35 GB)
 
-### Tier 3 (1GB-35GB)
+- Entire file memory-mapped (kernel manages paging)
+- Block processing with Rayon parallelism
+- Constant working set (~1-2 GB) regardless of file size
+- Peak RAM: 2-3 blocks worth (~2-3 GB) even for 35 GB file
 
-- Full file memory-mapped (kernel manages paging)
-- Block references are `&[u8]` slices—no copying
-- Parallel block processing with Rayon
-- Constant ~1GB working set regardless of file size
+**Why limit to 35 GB?** Beyond this, memory-mapping risks address space exhaustion or swap thrashing on some systems. Tier 4 falls back to Tier 2 strategy.
 
 ## Performance Characteristics
 
-| Tier | Read Strategy  | Write Strategy               | Parallelism               |
-| ---- | -------------- | ---------------------------- | ------------------------- |
-| 1    | Full load      | Sequential                   | None                      |
-| 2    | mmap + iterate | Sequential + parallel parity | Per-segment               |
-| 3    | mmap           | Parallel blocks              | Cross-block + intra-block |
+| Tier | Read Strategy  | Write Strategy               | Parallelism               | Bottleneck |
+| ---- | -------------- | ---------------------------- | ------------------------- | ---------- |
+| 1    | Full load      | Sequential                   | None                      | Negligible |
+| 2    | mmap + iterate | Sequential + parallel parity | Per-segment               | Disk I/O   |
+| 3    | mmap           | Parallel blocks              | Cross-block + intra-block | Disk I/O   |
 
-**Bottleneck:** Disk I/O, not encoding. RS encoding is 1-4s per block; I/O is 70-80s per GB on HDD.
+**Measured Performance (HDD):**
+
+- 1.6 GB file (Tier 3): 36 seconds, 45 MB/s
+- 26.6 GB file (Tier 3): 27 minutes 23 seconds, 16.6 MB/s
+
+**Analysis:** Disk I/O dominates. Reed-Solomon encoding completes in 1-4 seconds per block. 95% of commit time is writing to disk.
+
+**SSD Performance:** On NVMe, expect 3-4 minutes for 26 GB file vs 27 minutes on HDD.
 
 ## Error Handling
 
-All functions return `Result<T, Box<dyn std::error::Error>>`. Common failure modes:
+All functions return `Result<T, Box<dyn std::error::Error>>`. No panics.
 
-- File not found / permission denied
+**Common Failures:**
+
+- File not found or permission denied
 - Insufficient disk space during write
-- RS encoding failure (shouldn't happen with valid input)
+- Reed-Solomon encoding failure (invalid input or memory corruption)
 - Directory creation failure
+- Hash mismatch during verification
+
+**Partial Commits:**
+If commit fails mid-operation, an incomplete directory with segments but no manifest will exist. The archive ignores directories without manifests. Manual cleanup required.
+
+**Not Handled:**
+
+- Disk hardware failures mid-write
+- Power loss (manifest written last, so partial commits are detectable)
+- Filesystem corruption
+
+## Manifest Format
+
+```json
+{
+  "name": "movie.mp4",
+  "size": 1073741824,
+  "hash": "abc123...",
+  "tier": 3,
+  "encoding": {
+    "data_shards": 30,
+    "parity_shards": 3
+  },
+  "merkle_tree": {
+    "root": "def456...",
+    "blocks": { ... },
+    "segments": { ... }
+  },
+  "created": "2026-01-02T00:00:00Z"
+}
+```
+
+The manifest is essential for reconstruction. Loss of manifest renders archive unrecoverable.

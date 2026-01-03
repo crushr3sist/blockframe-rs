@@ -1,4 +1,3 @@
-pub mod api;
 pub mod routes;
 
 use poem::{Route, Server, listener::TcpListener};
