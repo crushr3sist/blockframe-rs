@@ -1,14 +1,14 @@
+use super::cache::SegmentCache;
+use super::source::SegmentSource;
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::error;
-
-use super::cache::SegmentCache;
-use super::source::SegmentSource;
 
 use crate::config::{Config, parse_size};
 use crate::merkle_tree::manifest::{self, ManifestFile};
