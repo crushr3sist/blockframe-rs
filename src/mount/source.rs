@@ -298,7 +298,7 @@ impl SegmentSource for RemoteSource {
         filename: &str,
         segment_id: usize,
         block_id: Option<usize>,
-        recovered_bytes: &Vec<u8>,
+        _recovered_bytes: &Vec<u8>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let url = format!(
             "{}/api/files/{}/parity/?block_id={}&segment_id={}",

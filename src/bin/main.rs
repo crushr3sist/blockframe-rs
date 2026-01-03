@@ -9,7 +9,7 @@ use blockframe::{
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_appender::{
     non_blocking,
     rolling::{RollingFileAppender, Rotation},
@@ -331,11 +331,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     MountOption::RO,
                     // This is the filesystems name. Purely cosmetic.
                     MountOption::FSName("blockframe".to_string()),
-                    // EntryTimeout is the directory cache control, which tells the linux kernel to index the files for 1 second in memory
-                    MountOption::EntryTimeout(Duration::from_secs(1)),
-                    // AttrTimeout is the metadata cache control, which same as above, tells the linux kernel to store the attributes such as size, permissions, timestamps for 1 second.
-                    // If a file grows, the os notices within 1 second.
-                    MountOption::AttrTimeout(Duration::from_secs(1)),
                     // AutoUnmount is used to prevent stale mount points, with a tiny uncertainty.
                     // its used to automatically unmount the directory if blockframe crashes or exists.
                     MountOption::AutoUnmount,

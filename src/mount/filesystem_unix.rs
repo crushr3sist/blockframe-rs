@@ -1,8 +1,7 @@
 use super::cache::SegmentCache;
 use super::source::SegmentSource;
 use fuser::{
-    FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
-    Request,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, Request,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -11,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use tracing::error;
 
 use crate::config::{Config, parse_size};
-use crate::merkle_tree::manifest::{self, ManifestFile};
+use crate::merkle_tree::manifest::ManifestFile;
 
 const TTL: Duration = Duration::from_secs(1);
 
@@ -410,7 +409,7 @@ impl Filesystem for BlockframeFS {
     fn read(
         &mut self,
         _req: &Request<'_>,
-        ino: u64,
+        _ino: u64,
         fh: u64,
         offset: i64,
         size: u32,
