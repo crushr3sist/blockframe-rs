@@ -1,6 +1,7 @@
 # BlockFrame
 
 ![alt text](final.png)
+[![Release](https://github.com/crushr3sist/blockframe-rs/actions/workflows/release.yml/badge.svg)](https://github.com/crushr3sist/blockframe-rs/actions/workflows/release.yml)
 
 A self-hosted erasure-coded storage engine implementing Reed-Solomon fault tolerance with transparent filesystem mounting.
 

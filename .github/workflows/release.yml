@@ -1,0 +1,90 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*" # Triggers on any tag starting with 'v'
+
+permissions:
+    contents: write # Needed to create releases and upload assets
+
+jobs:
+    create-release:
+        name: Create Release
+        runs-on: ubuntu-latest
+        outputs:
+            upload_url: ${{ steps.create_release.outputs.upload_url }}
+        steps:
+            - name: Create Release
+              id: create_release
+              uses: softprops/action-gh-release@v1
+              with:
+                  draft: false
+                  prerelease: false
+                  generate_release_notes: true # Auto-generates notes from commits
+
+    build:
+        name: Build ${{ matrix.platform }}
+        needs: create-release
+        strategy:
+            matrix:
+                include:
+                    - os: windows-latest
+                      target: x86_64-pc-windows-msvc
+                      platform: windows
+                      artifact_name: blockframe-windows-x86_64.zip
+
+                    - os: ubuntu-latest
+                      target: x86_64-unknown-linux-musl
+                      platform: linux
+                      artifact_name: blockframe-linux-x86_64
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            # Linux-specific: install musl tools for static linking
+            - name: Install musl tools
+              if: matrix.platform == 'linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y musl-tools
+
+            - name: Build release binary
+              run: cargo build --release --target ${{ matrix.target }}
+
+            # Windows: package exe + DLL into zip
+            - name: Package Windows release
+              if: matrix.platform == 'windows'
+              shell: bash
+              run: |
+                  mkdir -p release
+                  cp target/${{ matrix.target }}/release/blockframe.exe release/
+                  cp winfsp-x64.dll release/
+                  echo "BlockFrame v${GITHUB_REF#refs/tags/v}" > release/README.txt
+                  echo "" >> release/README.txt
+                  echo "Keep blockframe.exe and winfsp-x64.dll in the same directory." >> release/README.txt
+                  echo "" >> release/README.txt
+                  echo "Documentation: https://github.com/${{ github.repository }}" >> release/README.txt
+                  cd release
+                  7z a ../${{ matrix.artifact_name }} *
+
+            # Linux: just rename the binary
+            - name: Package Linux release
+              if: matrix.platform == 'linux'
+              run: |
+                  cp target/${{ matrix.target }}/release/blockframe ${{ matrix.artifact_name }}
+                  chmod +x ${{ matrix.artifact_name }}
+
+            # Upload the artifacts to the release
+            - name: Upload Release Asset
+              uses: softprops/action-gh-release@v1
+              with:
+                  files: ${{ matrix.artifact_name }}

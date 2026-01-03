@@ -41,6 +41,9 @@ tracing-appender = "0.2.4"
 ureq = { version = "3.1.4", features = ["json"] }
 tempfile = "3.24.0"
 
+[build-dependencies]
+embed-resource = "3.0.6"
+
 
 # linux only
 [target.'cfg(unix)'.dependencies]
