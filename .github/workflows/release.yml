@@ -67,7 +67,7 @@ jobs:
               run: |
                   mkdir -p release
                   cp target/${{ matrix.target }}/release/blockframe.exe release/
-                  cp winfsp-x64.dll release/
+                  cp patches/winfsp-rs/winfsp-sys/winfsp/bin/winfsp-x64.dll release/
                   echo "BlockFrame v${GITHUB_REF#refs/tags/v}" > release/README.txt
                   echo "" >> release/README.txt
                   echo "Keep blockframe.exe and winfsp-x64.dll in the same directory." >> release/README.txt
