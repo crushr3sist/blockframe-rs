@@ -82,6 +82,8 @@ impl FileStore {
         let mut file_list: Vec<File> = Vec::new();
 
         let manifests = self.all_files()?;
+        tracing::info!("FILESTORE | scanning {} manifests", manifests.len());
+
         for path in manifests.iter() {
             let manifest: ManifestFile = ManifestFile::new(path.display().to_string())?;
             let file_entry = File::new(
@@ -93,7 +95,8 @@ impl FileStore {
             file_list.push(file_entry);
         }
 
-        return Ok(file_list);
+        tracing::info!("FILESTORE | found {} files in archive", file_list.len());
+        Ok(file_list)
     }
 
     pub fn all_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
@@ -102,7 +105,7 @@ impl FileStore {
             .filter_map(|entry| entry.ok())
             .map(|f| f.path().join("manifest.json"))
             .collect();
-        return Ok(manifests);
+        Ok(manifests)
     }
 
     /// Finds a specific file in the archive by its original filename.
@@ -130,13 +133,20 @@ impl FileStore {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn find(&self, filename: &String) -> Result<File, Box<dyn std::error::Error>> {
+        tracing::debug!("FILESTORE | searching for file: {}", filename);
         let files = &self.get_all()?;
 
         for file in files {
             if file.file_name == *filename {
+                tracing::info!(
+                    "FILESTORE | found file: {} (hash: {})",
+                    filename,
+                    &file.file_data.hash[..10]
+                );
                 return Ok(file.clone().to_owned());
             }
         }
+        tracing::warn!("FILESTORE | file not found: {}", filename);
         Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("File '{}' not found", filename),
@@ -144,19 +154,24 @@ impl FileStore {
     }
 
     pub fn segment_reconstruct(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!(
+            "FILESTORE | reconstructing segmented file: {}",
+            file_obj.file_name
+        );
         // okay so we have a flat array of all of the chunks in order, we just need to append 1 by 1
         let reconstruct_path = Path::new("reconstructed");
 
-        fs::create_dir_all(&reconstruct_path)?;
+        fs::create_dir_all(reconstruct_path)?;
 
         let file_name = file_obj.file_name.clone();
 
         let chunks = self.get_chunks_paths(file_obj)?;
+        tracing::info!("FILESTORE | reconstructing from {} chunks", chunks.len());
 
         let mut file_being_reconstructed = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(reconstruct_path.join(file_name))?;
+            .open(reconstruct_path.join(&file_name))?;
 
         for chunk in chunks {
             let chunk_file = fs::read(chunk)?;
@@ -164,13 +179,18 @@ impl FileStore {
             file_being_reconstructed.write_all(&chunk_file)?;
         }
 
+        tracing::info!("FILESTORE | successfully reconstructed: {}", file_name);
         Ok(())
     }
 
     pub fn tiny_reconstruct(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!(
+            "FILESTORE | reconstructing tiny file: {}",
+            file_obj.file_name
+        );
         // okay so we have a flat array of all of the chunks in order, we just need to append 1 by 1
         let reconstruct_path = Path::new("reconstructed");
-        fs::create_dir_all(&reconstruct_path)?;
+        fs::create_dir_all(reconstruct_path)?;
         let file_name = file_obj.file_name.clone();
 
         let file_path = Path::new(&file_obj.file_data.path)
@@ -183,7 +203,8 @@ impl FileStore {
             })?
             .join("data.dat");
 
-        fs::write(reconstruct_path.join(file_name), fs::read(file_path)?)?;
+        fs::write(reconstruct_path.join(&file_name), fs::read(file_path)?)?;
+        tracing::info!("FILESTORE | successfully reconstructed: {}", file_name);
         Ok(())
     }
 
@@ -210,12 +231,11 @@ impl FileStore {
         let mut all_chunks: Vec<PathBuf> = Vec::new();
         for segment in segments_folder {
             for i in 0..6 {
-                let chunk_path = PathBuf::from(
-                    segment
-                        .clone()
-                        .join("chunks")
-                        .join(format!("chunk_{:?}.dat", i)),
-                );
+                let chunk_path = segment
+                    .clone()
+                    .join("chunks")
+                    .join(format!("chunk_{:?}.dat", i));
+
                 all_chunks.push(chunk_path);
             }
         }
@@ -230,12 +250,10 @@ impl FileStore {
         let mut all_paraties: Vec<PathBuf> = Vec::new();
         for segment in segments_folder {
             for i in 0..3 {
-                let parity_path = PathBuf::from(
-                    segment
-                        .clone()
-                        .join("parity")
-                        .join(format!("parity_{:?}.dat", i)),
-                );
+                let parity_path = segment
+                    .clone()
+                    .join("parity")
+                    .join(format!("parity_{:?}.dat", i));
                 all_paraties.push(parity_path);
             }
         }
@@ -309,25 +327,22 @@ impl FileStore {
         let segments = &self.get_segments_paths(file_obj)?;
         for segment in segments {
             for i in 0..6 {
-                let chunk_path = PathBuf::from(
-                    segment
-                        .clone()
-                        .join("chunks")
-                        .join(format!("chunk_{:?}.dat", i)),
-                );
+                let chunk_path = segment
+                    .clone()
+                    .join("chunks")
+                    .join(format!("chunk_{:?}.dat", i));
                 println!("chunk_path: {:?}", chunk_path);
 
-                file_size = file_size + fs::File::open(chunk_path)?.metadata()?.len() as u64;
+                file_size += fs::File::open(chunk_path)?.metadata()?.len() as u64
             }
             for i in 0..3 {
-                let parity_path = PathBuf::from(
-                    segment
-                        .clone()
-                        .join("parity")
-                        .join(format!("parity_{:?}.dat", i)),
-                );
+                let parity_path = segment
+                    .clone()
+                    .join("parity")
+                    .join(format!("parity_{:?}.dat", i));
+
                 println!("parity_path: {:?}", parity_path);
-                file_size = file_size + fs::File::open(parity_path)?.metadata()?.len() as u64;
+                file_size += fs::File::open(parity_path)?.metadata()?.len() as u64
             }
         }
 

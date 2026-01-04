@@ -72,6 +72,8 @@ S3 and MinIO solve distributed coordination, multi-tenancy, and high availabilit
 
 ### Installation
 
+Blockframe is available for release, so please head over to the releases and download the latest version for your platform. Please do not estrange the winfsp-x64.dll from blockframe.exe.
+
 Clone and build:
 
 ```bash
@@ -82,25 +84,90 @@ cargo build --release
 
 Binary will be available at `target/release/blockframe`.
 
+### Configuration
+
+**Before running any commands**, create a `config.toml` file in the same directory as the blockframe executable. This file is **required** and provides default values for all commands.
+
+**Example `config.toml`:**
+
+```toml
+[archive]
+# Default directory for storing archived files
+# Used by: commit, serve, health, and mount (when default_remote is empty)
+directory = "archive_directory"
+
+[mount]
+# Default mountpoint for the virtual filesystem
+default_mountpoint = "./mnt/blockframe"  # Linux example
+# default_mountpoint = "Z:"              # Windows drive letter
+
+# IMPORTANT: Default remote server URL for mounting
+# - Leave EMPTY ("") to use local archive directory by default
+# - When set, `blockframe mount` will connect to this remote server by default
+# - You can still override with --archive flag to mount local archive
+# Example: "http://192.168.1.100:8080"
+default_remote = ""
+
+[cache]
+# Cache settings for filesystem mounting
+# 1 segment = 32mb
+max_segments = 200
+
+# Maximum cache size (supports KB, MB, GB)
+max_size = "3GB"
+
+[server]
+# Default port for HTTP server
+default_port = 8080
+
+[logging]
+# Logging level: "trace", "debug", "info", "warn", "error"
+level = "info"
+```
+
+**Configuration Behavior:**
+
+- All CLI flags are **optional** - they override config defaults when provided
+- **Mount source priority** (first available is used):
+  1. `--remote` flag (if provided)
+  2. `--archive` flag (if provided)
+  3. `config.mount.default_remote` (if not empty) ⚠️
+  4. `config.archive.directory` (fallback)
+- ⚠️ **Warning**: If you set `default_remote`, the mount command will connect to the remote server by default
+- To use local archive when `default_remote` is set, use: `blockframe mount --archive archive_directory`
+- This eliminates the need to specify `--archive`, `--port`, or `--mountpoint` repeatedly
+- Adjust cache settings based on your system resources
+
 ### Quick Start
 
-Commit a file to the archive:
+**1. Commit a file to the archive:**
 
 ```bash
-./target/release/blockframe commit --file /path/to/your/file.bin
+blockframe commit --file /path/to/your/file.bin
 ```
 
-Mount the archive as a filesystem:
+Files are automatically stored in the `archive_directory` configured in `config.toml`.
+
+**2. Mount the archive as a filesystem:**
 
 ```bash
+# Simple: Uses defaults from config.toml
+blockframe mount
+
+# Or override specific settings:
 # Linux
-./target/release/blockframe mount --mountpoint /mnt/blockframe --archive archive_directory
+blockframe mount --mountpoint /mnt/custom --archive archive_directory
 
 # Windows
-.\target\release\blockframe.exe mount --mountpoint Z: --archive archive_directory
+blockframe mount --mountpoint Z: --archive archive_directory
+
+# Remote mount (connect to another BlockFrame server)
+blockframe mount --remote http://192.168.1.100:8080
 ```
 
-Access files through the mounted filesystem. Original files appear as regular files. Read operations trigger automatic hash verification and recovery if needed.
+**3. Access your files:**
+
+Once mounted, access files through the mounted filesystem. Original files appear as regular files. Read operations trigger automatic hash verification and recovery if corruption is detected.
 
 ## CLI Reference
 
@@ -134,18 +201,23 @@ blockframe commit --file /data/large-video.mp4
 Mount archive as virtual filesystem.
 
 ```bash
-blockframe mount --mountpoint <PATH> [--archive <PATH> | --remote <URL>]
+blockframe mount [--mountpoint <PATH>] [--archive <PATH> | --remote <URL>]
 ```
 
-**Arguments:**
+**Arguments (all optional):**
 
-- `--mountpoint, -m <PATH>`: Mount location (directory on Linux, drive letter on Windows)
-- `--archive, -a <PATH>`: Local archive directory (conflicts with `--remote`)
-- `--remote, -r <URL>`: Remote BlockFrame server URL (conflicts with `--archive`)
+- `--mountpoint, -m <PATH>`: Mount location (default: from `config.toml`)
+  - Linux: directory path (e.g., `/mnt/blockframe`)
+  - Windows: drive letter (e.g., `Z:`)
+- `--archive, -a <PATH>`: Local archive directory (default: from `config.toml`, conflicts with `--remote`)
+- `--remote, -r <URL>`: Remote BlockFrame server URL (default: from `config.toml`, conflicts with `--archive`)
 
 **Behaviour:**
 
-- Reads manifests from archive
+- If no flags are provided, uses all defaults from `config.toml`
+- If `default_remote` is set in config and no flags are given, connects to remote server
+- Otherwise falls back to local archive directory from config
+- Reads manifests from archive or remote server
 - Presents files as regular filesystem
 - Performs hash verification on every read
 - Automatically recovers corrupted segments from parity
@@ -154,11 +226,20 @@ blockframe mount --mountpoint <PATH> [--archive <PATH> | --remote <URL>]
 **Examples:**
 
 ```bash
-# Linux local mount
+# Use all defaults from config.toml
+blockframe mount
+
+# Override mountpoint only
+blockframe mount -m /mnt/custom
+
+# Linux local mount with explicit paths
 blockframe mount -m /mnt/blockframe -a archive_directory
 
 # Windows remote mount
 blockframe mount -m Z: -r http://server.local:8080
+
+# Remote mount using config defaults for mountpoint
+blockframe mount -r http://192.168.1.50:8080
 ```
 
 **Note for Windows:** Requires WinFSP installed. Unmount with Ctrl+C or standard Windows unmount.
@@ -171,22 +252,38 @@ Start HTTP API server for remote access.
 blockframe serve [--archive <PATH>] [--port <PORT>]
 ```
 
-**Arguments:**
+**Arguments (all optional):**
 
-- `--archive, -a <PATH>`: Archive directory to serve (default: `archive_directory`)
-- `--port, -p <PORT>`: HTTP port (default: `8080`)
+- `--archive, -a <PATH>`: Archive directory to serve (default: from `config.toml`)
+- `--port, -p <PORT>`: HTTP port (default: from `config.toml`)
 
 **Behaviour:**
 
-- Serves archive over HTTP
-- Provides file listing and manifest endpoints
-- Enables remote mounting from other machines
+- Serves archive over HTTP with CORS enabled for cross-origin access
+- Provides file listing, manifest, and segment download endpoints
+- Enables remote mounting from other machines on your network
+- OpenAPI documentation available at `http://<your-ip>:<port>/docs`
 - Read-only access
 
-**Example:**
+**Examples:**
 
 ```bash
+# Use defaults from config.toml
+blockframe serve
+
+# Override port only
+blockframe serve --port 9000
+
+# Serve custom archive directory
 blockframe serve --archive /storage/archive --port 9000
+```
+
+**Remote Access:**
+
+Once serving, access the API documentation at `http://<your-ip>:8080/docs` (or your configured port). Other machines can mount your archive using:
+
+```bash
+blockframe mount --remote http://<your-ip>:8080
 ```
 
 ### `health`
@@ -197,9 +294,9 @@ Scan archive for corruption and attempt repairs.
 blockframe health [--archive <PATH>]
 ```
 
-**Arguments:**
+**Arguments (optional):**
 
-- `--archive, -a <PATH>`: Archive directory to check (default: `archive_directory`)
+- `--archive, -a <PATH>`: Archive directory to check (default: from `config.toml`)
 
 **Behaviour:**
 
@@ -209,10 +306,14 @@ blockframe health [--archive <PATH>]
 - Attempts reconstruction from parity where possible
 - Writes recovered segments back to disk
 
-**Example:**
+**Examples:**
 
 ```bash
-blockframe health --archive archive_directory
+# Use default archive from config.toml
+blockframe health
+
+# Check specific archive directory
+blockframe health --archive /backup/archive
 ```
 
 **Output Example:**
@@ -489,6 +590,8 @@ Browse module READMEs for deeper technical insight into specific subsystems.
 - [moka](https://github.com/moka-rs/moka) - W-TinyLFU cache
 - [clap](https://github.com/clap-rs/clap) - CLI argument parsing
 - [tracing](https://github.com/tokio-rs/tracing) - Structured logging
+
+**Note on winfsp-rs:** This project includes a patched version of [winfsp-rs](https://github.com/SnowflakePowered/winfsp-rs) located in `patches/winfsp-rs/`. The patches address specific compatibility and functionality requirements for BlockFrame. The original winfsp-rs is licensed under GPLv3, and the patched version maintains the same license.
 
 ---
 

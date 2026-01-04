@@ -4,7 +4,7 @@ use reed_solomon_simd::ReedSolomonEncoder;
 impl Chunker {
     pub fn get_chunks(&self, file_data: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         let total_len = file_data.len();
-        let chunk_size = (total_len + 5) / 6; // Round up to ensure we don't create more than 6 chunks
+        let chunk_size = total_len.div_ceil(6); // Round up to ensure we don't create more than 6 chunks
 
         let mut chunks = Vec::new();
 

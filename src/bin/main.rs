@@ -10,7 +10,7 @@ use blockframe::{
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use tracing_appender::{
     non_blocking,
     rolling::{RollingFileAppender, Rotation},
@@ -60,7 +60,7 @@ enum Commands {
     Mount {
         /// The location to mount the filesystem (e.g., /tmp/blockframe).
         #[arg(short, long)]
-        mountpoint: PathBuf,
+        mountpoint: Option<PathBuf>,
         /// Path to a local archive directory.
         #[arg(short, long, conflicts_with = "remote")]
         archive: Option<PathBuf>,
@@ -154,6 +154,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         format!("Failed to load config.toml: {}. Make sure config.toml exists in the current directory.", e)
     })?;
 
+    // Warn if both remote and archive are configured (could be confusing)
+    if !config.mount.default_remote.is_empty() {
+        warn!(
+            "Config has default_remote set to: {}",
+            config.mount.default_remote
+        );
+        warn!("The 'mount' command will connect to the remote server by default.");
+        warn!("Use --archive flag to override and mount local archive instead.");
+    }
+
     let chunker = Chunker::new()?;
 
     match cli.command {
@@ -205,7 +215,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
 
-        //SECTION to be implimented
         Commands::Serve { archive, port } => {
             let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
             let server_port = port.unwrap_or(config.server.default_port);
@@ -224,8 +233,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             archive,
             remote,
         } => {
+            let mount_path = mountpoint.unwrap_or_else(|| config.mount.default_mountpoint.clone());
+
             info!("MOUNT | starting mount operation");
-            info!("MOUNT | mountpoint: {:?}", mountpoint);
+            info!("MOUNT | mountpoint: {:?}", mount_path);
+
             // source is a smart-pointer which points to our source
             // we're using a smart-pointer as it could either be a RemoteSource or LocalSource
             let source: Box<dyn SegmentSource> = if let Some(url) = remote {
@@ -240,10 +252,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // LocalSource is used to interface local files
                 info!("MOUNT | using local source: {:?}", path);
                 Box::new(LocalSource::new(path)?)
+            } else if !config.mount.default_remote.is_empty() {
+                // Use default remote from config if specified
+                info!(
+                    "MOUNT | using default remote source from config: {}",
+                    config.mount.default_remote
+                );
+                Box::new(RemoteSource::new(config.mount.default_remote.clone()))
             } else {
-                // If no source is flagged the CLI will exit
-                error!("MOUNT | no source specified");
-                std::process::exit(1);
+                // Use default archive directory from config
+                info!(
+                    "MOUNT | using default archive from config: {:?}",
+                    config.archive.directory
+                );
+                Box::new(LocalSource::new(config.archive.directory)?)
             };
             // Initalising the BlockframeFS class with the given source
             info!("MOUNT | creating filesystem");
@@ -307,8 +329,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut host = winfsp::host::FileSystemHost::new(volume_params, fs)?;
 
                 // this mounts our provided mountpoint which is the directory where the filesystem will mount
-                info!("MOUNT | mounting to: {:?}", mountpoint);
-                host.mount(&mountpoint)?;
+                info!("MOUNT | mounting to: {:?}", mount_path);
+                host.mount(&mount_path)?;
 
                 // we then start our request loop.
                 // from this point on, windows explore, dir, file reads will actively be called into the filesystem
@@ -317,7 +339,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // blockframe uses stdin for exitpoint, its a crude lifetime guard
                 // it keeps the processes alive until the user presses enter, which unmounts the filesystem.
-                info!("Mounted at {:?}. Press Enter to unmount.", mountpoint);
+                info!("Mounted at {:?}. Press Enter to unmount.", mount_path);
                 io::stdin()
                     .read_exact(&mut [0u8])
                     .map_err(|e| e.to_string())?;
@@ -352,10 +374,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // However, with linux, if our BlockframeFS crashes for some reason, our linux kernel wont be informed properly.
                 // If blockframe crashes, it wont have time to inform the kernel, beacuse unmounting is a manual call that needs to be made.
                 // The reason we have to unmount, if blockframe crashes, and we couldnt call fusermount -u, linux will still sustain that mountpoint still belongs to a process that's not alive anymore, making that mountpoint stale.
-                if !mountpoint.exists() {
+                if !mount_path.exists() {
                     // if our mountpoint doesnt exist
                     // we then attempt to check if creating out mountpoint causes an error
-                    match std::fs::create_dir_all(&mountpoint) {
+                    match std::fs::create_dir_all(&mount_path) {
                         // if there were no errors, we exit the match predicate no problems.
                         // we created our mountpoint
                         Ok(_) => {}
@@ -368,7 +390,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .arg("-q") // -q (Quiet). We are calling unmount speculatively.
                                 // If the directory wasn't actually mounted (and the mkdir failed for a different reason),
                                 // fusermount would normally error out. -q suppresses that error so we don't spam logs.
-                                .arg(&mountpoint) // we also pass in our given mountpoint as the directory we're trying to fix
+                                .arg(&mount_path) // we also pass in our given mountpoint as the directory we're trying to fix
                                 .status();
                         }
                         Err(e) => return Err(e.into()),
@@ -383,7 +405,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // When we mount or filesystem on linux, what is happening is, blockframe creats a telephone line (a socket) to the linux kernel
                 // when the user checks to see the files, instead of seeing the physical files placed in that folder, the linux kernel intercepts `ls` request and understands that there is a process attached to that folder
                 // instead of being served the actual files in that folder, blockframe instead serves the files.
-                fuser::mount2(fs, &mountpoint, &options)?;
+                fuser::mount2(fs, &mount_path, &options)?;
             }
 
             Ok(())

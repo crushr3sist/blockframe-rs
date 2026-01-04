@@ -26,3 +26,21 @@
 2026-01-04T05:35:33.318566Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
 2026-01-04T05:35:33.324402Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
 2026-01-04T05:35:33.324408Z  INFO poem::server: server started
+2026-01-04T05:56:57.843542Z  INFO blockframe: MOUNT | starting mount operation
+2026-01-04T05:56:57.843553Z  INFO blockframe: MOUNT | mountpoint: "c:/users/<your-name>/desktop/blockframe"
+2026-01-04T05:56:57.843558Z  INFO blockframe: MOUNT | using default archive from config: "archive_directory"
+2026-01-04T05:56:57.843564Z  INFO blockframe: MOUNT | creating filesystem
+2026-01-04T05:56:57.855899Z  INFO blockframe: MOUNT | initializing WinFsp
+2026-01-04T05:56:57.855917Z  INFO blockframe: MOUNT | configuring volume parameters
+2026-01-04T05:56:57.855919Z  INFO blockframe: MOUNT | creating filesystem host
+2026-01-04T05:56:57.857113Z  INFO blockframe: MOUNT | mounting to: "c:/users/<your-name>/desktop/blockframe"
+2026-01-04T05:57:35.054345Z  INFO blockframe: MOUNT | starting mount operation
+2026-01-04T05:57:35.054354Z  INFO blockframe: MOUNT | mountpoint: "h:/bf"
+2026-01-04T05:57:35.054360Z  INFO blockframe: MOUNT | using default archive from config: "archive_directory"
+2026-01-04T05:57:35.054365Z  INFO blockframe: MOUNT | creating filesystem
+2026-01-04T05:57:35.065346Z  INFO blockframe: MOUNT | initializing WinFsp
+2026-01-04T05:57:35.065358Z  INFO blockframe: MOUNT | configuring volume parameters
+2026-01-04T05:57:35.065360Z  INFO blockframe: MOUNT | creating filesystem host
+2026-01-04T05:57:35.066470Z  INFO blockframe: MOUNT | mounting to: "h:/bf"
+2026-01-04T05:57:35.066642Z  INFO blockframe: MOUNT | starting filesystem
+2026-01-04T05:57:35.066676Z  INFO blockframe: Mounted at "h:/bf". Press Enter to unmount.

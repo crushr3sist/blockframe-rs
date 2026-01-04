@@ -44,6 +44,7 @@ impl BlockframeApi {
     // list all files in archive
     #[oai(path = "/files", method = "get")]
     async fn list_files(&self) -> Result<Json<Vec<FileInfo>>, poem::Error> {
+        tracing::info!("API | GET /files - listing all files");
         let store = self.store.read();
         let files = store.get_all().map_err(|err: Box<dyn std::error::Error>| {
             self.io_to_poem(
@@ -53,6 +54,7 @@ impl BlockframeApi {
             )
         })?; // <--- The '?' operator propagates the error to the endpoint return type
 
+        tracing::info!("API | returning {} files", files.len());
         Ok(Json(
             files
                 .iter()
@@ -71,6 +73,7 @@ impl BlockframeApi {
         &self,
         filename: Path<String>,
     ) -> Result<Json<serde_json::Value>, poem::Error> {
+        tracing::info!("API | GET /files/{}/manifest", filename.0);
         // return manifest.json content
         let store = self.store.read();
         let manifest = store
@@ -84,14 +87,14 @@ impl BlockframeApi {
             })?
             .manifest;
 
+        tracing::info!("API | returning manifest for: {}", filename.0);
         Ok(Json(
             json!({
                 "manifest": manifest
             })
             .to_json()
             .ok_or_else(|| {
-                let err =
-                    std::io::Error::new(std::io::ErrorKind::Other, "JSON serialization failed");
+                let err = std::io::Error::other("JSON serialization failed");
                 self.io_to_poem(
                     Box::new(err),
                     &format!("Failed to serialize manifest for file {}", filename.0),
@@ -103,6 +106,7 @@ impl BlockframeApi {
     // get segment data
     #[oai(path = "/files/:filename", method = "get")]
     async fn get_data(&self, filename: Path<String>) -> Result<Binary<Vec<u8>>, poem::Error> {
+        tracing::info!("API | GET /files/{}", filename.0);
         let store = self.store.read();
 
         let file_obj = store
@@ -130,7 +134,7 @@ impl BlockframeApi {
             )
         })?;
 
-        return Ok(Binary(file_bytes));
+        Ok(Binary(file_bytes))
     }
 
     // get segment data
@@ -140,6 +144,7 @@ impl BlockframeApi {
         filename: Path<String>,
         segment_id: Path<usize>,
     ) -> Result<Binary<Vec<u8>>, poem::Error> {
+        tracing::info!("API | GET /files/{}/segment/{}", filename.0, segment_id.0);
         let store = self.store.read();
 
         let file_obj = store
@@ -175,7 +180,7 @@ impl BlockframeApi {
                 StatusCode::NOT_FOUND,
             )
         })?;
-        return Ok(Binary(file_bytes));
+        Ok(Binary(file_bytes))
     }
 
     // get block segment (Tier 3)
@@ -190,6 +195,12 @@ impl BlockframeApi {
         block_id: Path<usize>,
         segment_id: Path<usize>,
     ) -> Result<Binary<Vec<u8>>, poem::Error> {
+        tracing::info!(
+            "API | GET /files/{}/block/{}/segment/{}",
+            filename.0,
+            block_id.0,
+            segment_id.0
+        );
         // read and return segment bytes
         let store = self.store.read();
 
@@ -218,7 +229,7 @@ impl BlockframeApi {
             )
         })?;
 
-        return Ok(Binary(file_bytes));
+        Ok(Binary(file_bytes))
     }
 
     // get parity shard
@@ -230,6 +241,12 @@ impl BlockframeApi {
         segment_id: Query<Option<usize>>,
         parity_id: Query<Option<usize>>,
     ) -> Result<Binary<Vec<u8>>, poem::Error> {
+        tracing::info!(
+            "API | GET /files/{}/parity/ (tier {}, parity_id: {:?})",
+            filename.0,
+            "", // will be determined below
+            parity_id.0
+        );
         let store = self.store.read();
 
         let file_obj = store
@@ -253,7 +270,7 @@ impl BlockframeApi {
                     tracing::error!("Failed to find file {}: {}", filename.0, err);
                     poem::Error::from_string(err.to_string(), StatusCode::NOT_FOUND)
                 })?;
-                return Ok(Binary(parity_bytes));
+                Ok(Binary(parity_bytes))
             }
             2 => {
                 let segment_id = segment_id.0.ok_or_else(|| {
@@ -276,7 +293,7 @@ impl BlockframeApi {
                     );
                     poem::Error::from_string(err.to_string(), StatusCode::NOT_FOUND)
                 })?;
-                return Ok(Binary(parity_bytes));
+                Ok(Binary(parity_bytes))
             }
             3 => {
                 let block_id = block_id.0.ok_or_else(|| {
@@ -299,13 +316,13 @@ impl BlockframeApi {
                         StatusCode::BAD_REQUEST,
                     ));
                 }
-                if let Some(sid) = segment_id.0 {
-                    if sid > 30 {
-                        return Err(poem::Error::from_string(
-                            "tier 3 files have only 30 segments. Segment index out of range",
-                            StatusCode::BAD_REQUEST,
-                        ));
-                    }
+                if let Some(sid) = segment_id.0
+                    && sid > 30
+                {
+                    return Err(poem::Error::from_string(
+                        "tier 3 files have only 30 segments. Segment index out of range",
+                        StatusCode::BAD_REQUEST,
+                    ));
                 }
                 let parity_path = store
                     .get_parity_path_t3(&file_obj, block_id, parity_id)
@@ -317,7 +334,7 @@ impl BlockframeApi {
                     poem::Error::from_string(err.to_string(), StatusCode::NOT_FOUND)
                 })?;
 
-                return Ok(Binary(parity_bytes));
+                Ok(Binary(parity_bytes))
             }
             _ => Ok(Binary(vec![0])),
         }

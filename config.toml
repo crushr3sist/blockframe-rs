@@ -2,6 +2,14 @@
 # Default directory for storing archived files
 directory = "archive_directory"
 
+[mount]
+# Default mountpoint for the virtual filesystem
+default_mountpoint = "h:/bf"
+
+# Optional: Default remote server URL (leave empty for local archive)
+# Example: "http://192.168.1.100:8080"
+default_remote = ""
+
 [cache]
 # 1 segment = 32mb
 max_segments = 200

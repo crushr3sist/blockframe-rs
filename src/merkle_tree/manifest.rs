@@ -67,7 +67,7 @@ impl ManifestFile {
         }
 
         // check each leaf hash
-        for (_index, hash) in &self.merkle_tree.leaves {
+        for hash in self.merkle_tree.leaves.values() {
             if !Self::is_valid_hash(hash)? {
                 return Ok(false);
             }
@@ -83,7 +83,7 @@ impl ManifestFile {
             }
         }
 
-        return Ok(true);
+        Ok(true)
     }
 
     /// Checks whether the supplied string is a 64-character hexadecimal hash.

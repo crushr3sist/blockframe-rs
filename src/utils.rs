@@ -25,7 +25,7 @@ pub fn sha256(data: &[u8]) -> Result<String, std::io::Error> {
     hasher.update(data);
     let result = hasher.finalize();
 
-    return Ok(result.to_string());
+    Ok(result.to_string())
 }
 
 /// Determines the optimal segment size, in bytes, to use when reading a file
@@ -60,7 +60,7 @@ pub fn determine_segment_size(file_size: u64) -> Result<usize, std::io::Error> {
 
     if available_ram < 4_000_000 {
         // 1mb
-        Ok(1 * 1024 * 1024)
+        Ok(1024 * 1024)
     } else if available_ram < 16_000_000 {
         // 8mb
         Ok(8 * 1024 * 1024)

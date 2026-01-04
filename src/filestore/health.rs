@@ -267,15 +267,14 @@ impl FileStore {
                 match fs::read(&parity_file) {
                     Ok(chunk) => {
                         // Verify Parity Hash
-                        if let Some(expected) = segment_info.parity.get(parity_idx) {
-                            if let Ok(actual) = sha256(&chunk) {
-                                if actual != *expected {
-                                    missing_parity.push(format!(
-                                        "segment_{}_parity_{}.dat (CORRUPT)",
-                                        idx, parity_idx
-                                    ));
-                                }
-                            }
+                        if let Some(expected) = segment_info.parity.get(parity_idx)
+                            && let Ok(actual) = sha256(&chunk)
+                            && actual != *expected
+                        {
+                            missing_parity.push(format!(
+                                "segment_{}_parity_{}.dat (CORRUPT)",
+                                idx, parity_idx
+                            ));
                         }
                     }
                     Err(_) => {

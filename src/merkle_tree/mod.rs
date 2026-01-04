@@ -29,10 +29,10 @@ impl MerkleTree {
             })
             .collect::<Result<Vec<Node>, std::io::Error>>()?;
 
-        if leaves.len() % 2 == 1 {
-            if let Some(last_leaf) = leaves.last().cloned() {
-                leaves.push(last_leaf);
-            }
+        if leaves.len() % 2 == 1
+            && let Some(last_leaf) = leaves.last().cloned()
+        {
+            leaves.push(last_leaf);
         }
 
         let root = Self::build_tree(&leaves)?;
@@ -54,7 +54,7 @@ impl MerkleTree {
     /// assert_eq!(tree.leaves.len(), 2);
     /// ```
     pub fn from_hashes(hashes: Vec<String>) -> Result<Self, std::io::Error> {
-        let leaves: Vec<Node> = hashes.into_iter().map(|hash| Node::new(hash)).collect();
+        let leaves: Vec<Node> = hashes.into_iter().map(Node::new).collect();
         let root = Self::build_tree(&leaves)?;
         Ok(MerkleTree {
             chunks: vec![],
@@ -96,7 +96,7 @@ impl MerkleTree {
             let parent = Node::with_children(combined, Some(Box::new(left)), Some(Box::new(right)));
             new_level.push(parent);
         }
-        return Self::build_tree(&new_level);
+        Self::build_tree(&new_level)
     }
 
     /// Produces a Merkle proof for the chunk at the supplied index.
@@ -124,10 +124,10 @@ impl MerkleTree {
         let mut level = leaves;
 
         while level.len() > 1 {
-            if level.len() % 2 == 1 {
-                if let Some(last_level) = level.last().cloned() {
-                    level.push(last_level);
-                }
+            if level.len() % 2 == 1
+                && let Some(last_level) = level.last().cloned()
+            {
+                level.push(last_level);
             }
             let mut next_level = Vec::new();
 
@@ -157,7 +157,7 @@ impl MerkleTree {
             }
             level = next_level;
         }
-        return Ok(proof);
+        Ok(proof)
     }
 
     /// Verifies that a chunk belongs to the Merkle tree given a proof and a
@@ -180,10 +180,10 @@ impl MerkleTree {
         proof: &[String],
         root_hash: String,
     ) -> Result<bool, std::io::Error> {
-        let mut current_hash = sha256(&chunk.to_vec())?;
+        let mut current_hash = sha256(chunk)?;
         let mut chunk_index = chunk_index;
         for sibling_hash in proof {
-            if chunk_index % 2 == 0 {
+            if chunk_index.is_multiple_of(2) {
                 let combined_hashes = format!("{}{}", current_hash, sibling_hash)
                     .as_bytes()
                     .to_vec();
@@ -194,9 +194,10 @@ impl MerkleTree {
                     .to_vec();
                 current_hash = sha256(&combined_hashes_else)?;
             }
-            chunk_index = chunk_index / 2;
+
+            chunk_index /= 2;
         }
-        return Ok(current_hash == root_hash);
+        Ok(current_hash == root_hash)
     }
 
     /// Returns the root hash of the Merkle tree as a string slice.
@@ -209,7 +210,7 @@ impl MerkleTree {
     /// assert!(!tree.get_root().unwrap().is_empty());
     /// ```
     pub fn get_root(&self) -> Result<&str, std::io::Error> {
-        return Ok(&self.root.hash_val);
+        Ok(&self.root.hash_val)
     }
 
     /// Returns a reference to the vector of leaf nodes.
@@ -222,7 +223,7 @@ impl MerkleTree {
     /// assert_eq!(tree.get_leaves().unwrap().len(), 2);
     /// ```
     pub fn get_leaves(&self) -> Result<&Vec<Node>, std::io::Error> {
-        return Ok(&self.leaves);
+        Ok(&self.leaves)
     }
 
     /// Serialises the Merkle tree into a JSON object containing the root hash and
@@ -246,7 +247,7 @@ impl MerkleTree {
                 "leaves": leaves_object
         });
 
-        return Ok(merkle_tree_object);
+        Ok(merkle_tree_object)
     }
 }
 pub mod manifest;

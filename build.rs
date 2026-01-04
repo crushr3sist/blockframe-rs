@@ -1,14 +1,14 @@
 // Build script to copy WinFSP DLL to output directory
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn main() {
     // Only run on Windows
     if cfg!(target_os = "windows") {
         // This line is only relevant if you actually intend to embed resources.
         // If not, you can remove it.
-        embed_resource::compile("blockframe.rc", embed_resource::NONE);
+        let _ = embed_resource::compile("blockframe.rc", embed_resource::NONE);
 
         println!("cargo:rerun-if-changed=patches/winfsp-rs/winfsp-sys/winfsp/bin/winfsp-x64.dll");
 
@@ -27,7 +27,7 @@ fn main() {
                 return;
             }
 
-            match fs::copy(&dll_source, &dll_dest) {
+            match fs::copy(dll_source, &dll_dest) {
                 Ok(_) => println!(
                     "cargo:warning=Copied winfsp-x64.dll to {}",
                     dll_dest.display()

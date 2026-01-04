@@ -7,6 +7,7 @@ use std::{
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub archive: ArchiveConfig,
+    pub mount: MountConfig,
     pub cache: CacheConfig,
     pub server: ServerConfig,
     pub logging: LoggingConfig,
@@ -15,6 +16,12 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct ArchiveConfig {
     pub directory: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MountConfig {
+    pub default_mountpoint: PathBuf,
+    pub default_remote: String,
 }
 
 #[derive(Debug, Deserialize)]

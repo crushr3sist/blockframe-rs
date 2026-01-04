@@ -45,7 +45,7 @@ pub trait SegmentSource: Send + Sync {
         filename: &str,
         segment_id: usize,
         block_id: Option<usize>,
-        recovered_bytes: &Vec<u8>,
+        recovered_bytes: &[u8],
     ) -> Result<bool, Box<dyn std::error::Error>>;
     fn read_data(&self, filename: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 }
@@ -117,8 +117,7 @@ impl SegmentSource for LocalSource {
                 Ok(parity_bytes)
             }
             3 => {
-                let block_id =
-                    block_id.ok_or_else(|| "block_id is required for tier 3 parity reads")?;
+                let block_id = block_id.ok_or("block_id is required for tier 3 parity reads")?;
 
                 let parity_bytes =
                     fs::read(self.store.get_parity_path_t3(&file, block_id, parity_id)?)?;
@@ -134,7 +133,7 @@ impl SegmentSource for LocalSource {
         filename: &str,
         segment_id: usize,
         block_id: Option<usize>,
-        recovered_bytes: &Vec<u8>,
+        recovered_bytes: &[u8],
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let file = self.store.find(&filename.to_string())?;
 
@@ -144,7 +143,7 @@ impl SegmentSource for LocalSource {
                     .parent()
                     .ok_or("No parent directory")?;
                 let data_path = file_path.join("data.dat");
-                fs::write(&data_path, &recovered_bytes)?;
+                fs::write(&data_path, recovered_bytes)?;
                 Ok(true)
             }
             2 => {
@@ -158,8 +157,7 @@ impl SegmentSource for LocalSource {
                 Ok(true)
             }
             3 => {
-                let block_id =
-                    block_id.ok_or_else(|| "block_id is required for tier 3 parity reads")?;
+                let block_id = block_id.ok_or("block_id is required for tier 3 parity reads")?;
 
                 let file_path = Path::new(&file.file_data.path)
                     .parent()
@@ -298,7 +296,7 @@ impl SegmentSource for RemoteSource {
         filename: &str,
         segment_id: usize,
         block_id: Option<usize>,
-        _recovered_bytes: &Vec<u8>,
+        _recovered_bytes: &[u8],
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let url = format!(
             "{}/api/files/{}/parity/?block_id={}&segment_id={}",

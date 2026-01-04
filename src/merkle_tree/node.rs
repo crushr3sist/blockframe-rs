@@ -66,8 +66,8 @@ impl Node {
     ) -> Self {
         Node {
             hash_val,
-            left: left,
-            right: right,
+            left,
+            right,
         }
     }
 }

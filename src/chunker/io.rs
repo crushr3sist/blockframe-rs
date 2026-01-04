@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
 use std::{
     fs::{self},
     path::Path,
@@ -14,17 +13,18 @@ use serde_json::json;
 use crate::merkle_tree::MerkleTree;
 use crate::merkle_tree::manifest::MerkleTreeStructure;
 impl Chunker {
-    pub fn check_for_archive_dir(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn check_for_archive_dir(&self) -> Result<bool, Box<dyn std::error::Error>> {
         if !Path::new("archive_directory").is_dir() {
             self.create_dir(Path::new("archive_directory"))?;
+            return Ok(false);
         }
-        Ok(())
+        Ok(true)
     }
 
     pub fn write_segment(
         &self,
         segment_index: usize,
-        segment_dir: &PathBuf,
+        segment_dir: &Path,
         segment: &[u8],
     ) -> Result<(), std::io::Error> {
         // buffering this so windows doesn't throw a tantrum mid write

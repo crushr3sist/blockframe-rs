@@ -26,7 +26,7 @@ pub async fn run_server(
         ])
         .expose_headers(vec!["Content-Length", "Content-Type"])
         .max_age(3600);
-    
+
     let cors_docs = Cors::new()
         .allow_origin(poem::http::header::HeaderValue::from_static("*"))
         .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"])

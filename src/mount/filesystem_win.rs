@@ -102,7 +102,7 @@ impl BlockframeFSInner {
         Some(FileInfo {
             file_attributes: FILE_ATTRIBUTE_READONLY.0,
             reparse_tag: 0,
-            allocation_size: ((manifest.size as u64 + 511) / 512) * 512,
+            allocation_size: ((manifest.size as u64).div_ceil(512) * 512),
             file_size: manifest.size as u64,
             creation_time: 0,
             last_access_time: 0,

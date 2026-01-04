@@ -69,10 +69,10 @@ pub fn recover_segment_rs13(
         .to_vec();
 
     // Truncate if needed (Tier 1 padding removal)
-    if let Some(size) = expected_size {
-        if recovered.len() > size {
-            recovered.truncate(size);
-        }
+    if let Some(size) = expected_size
+        && recovered.len() > size
+    {
+        recovered.truncate(size);
     }
 
     Ok(recovered)
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn test_recover_rs13_basic() {
         // Create some test data
-        let original = vec![42u8; 1024];
+        let _original = vec![42u8; 1024];
 
         // In real usage, these would be RS-encoded parity shards
         // For this test, we'll just verify the function signature works
