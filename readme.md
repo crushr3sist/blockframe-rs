@@ -3,33 +3,57 @@
 ![alt text](final.png)
 [![Release](https://github.com/crushr3sist/blockframe-rs/actions/workflows/release.yml/badge.svg)](https://github.com/crushr3sist/blockframe-rs/actions/workflows/release.yml)
 
-A self-hosted erasure-coded storage engine implementing Reed-Solomon fault tolerance with transparent filesystem mounting.
+A self-hosted, erasure-coded storage engine implemented in Rust. It provides Reed-Solomon fault tolerance on local disks and exposes archives via a transparent virtual filesystem (FUSE/WinFSP).
 
-BlockFrame addresses scenarios where S3-compatible object stores and traditional backup systems may not be suitable: single-machine deployments requiring data resilience, offline operation without cluster quorum, and transparent file access without explicit restoration workflows. The system provides mathematical reconstruction from disk failures, bit rot, and corruption through parity-based recovery, combined with virtual filesystem mounting for seamless integration.
+## Motivation
 
-## Problem Statement
+This project was born out of frustration with the "API Tax" I encountered while working in the energy sector.
 
-Cloud storage solves many problems but introduces dependencies on external infrastructure, recurring costs, and data sovereignty concerns. Self-hosted alternatives like MinIO provide S3 compatibility but require multi-node clusters for erasure coding. Traditional backup solutions rely on snapshots and historical copies rather than inline fault tolerance.
+My task was straightforward: build a fullstack application to render datasets managed by Databricks. The reality was a mess of brittle Python API wrappers, authentication handshakes, and network latency just to get a byte stream into my application. Hours went into wrestling with auth tokens and query interfaces that felt completely foreign to how I normally work with files.
 
-BlockFrame observes these gaps and offers a focused solution: single-binary deployment with erasure coding at the storage layer, transparent file access through FUSE and WinFSP mounts, and offline operation without external dependencies.
+I kept thinking: _there must be a better way to work with data you own_. Tools like `pandas` and `grep` are optimized for filesystems, not HTTP APIs. Cloud abstractions solve scale problems, but they often hinder data locality for teams that just need to read their own files without the ceremony.
 
-## Why Not S3 or MinIO?
+BlockFrame is my engineering experiment to answer the question: **Can we bring the durability guarantees of distributed object storage (erasure coding, bit-rot protection) down to the local filesystem level, removing the network bottleneck entirely?**
 
-S3 and MinIO are proven, production-grade systems serving millions of deployments. BlockFrame does not aim to replace them. It addresses different constraints.
+## Core Engineering Approach
 
-| Consideration          | S3 / MinIO                                  | BlockFrame                                      |
-| ---------------------- | ------------------------------------------- | ----------------------------------------------- |
-| **Primary use case**   | Multi-tenant object storage, API-first      | Single-user fault-tolerant storage, FS-first    |
-| **Deployment**         | Cloud service or 4+ node cluster            | Single machine (Raspberry Pi to server)         |
-| **Erasure coding**     | Distributed across nodes                    | Local Reed-Solomon with configurable redundancy |
-| **Access model**       | HTTP API (GET, PUT, DELETE)                 | Mounted filesystem (read/write/ls)              |
-| **Offline operation**  | Requires cluster consensus or cloud network | Fully offline capable                           |
-| **Data format**        | Opaque blobs                                | Inspectable segments, manifests, parity shards  |
-| **Recovery model**     | Re-replication from healthy nodes           | Mathematical reconstruction from local parity   |
-| **Resource footprint** | ~500MB RAM, runtime dependencies            | ~10MB RAM, single static binary                 |
-| **Network dependency** | Required for distributed operation          | Optional (supports remote sources)              |
+BlockFrame differs from tools like MinIO or S3 by prioritizing **OS-level integration** over API compatibility.
 
-S3 and MinIO solve distributed coordination, multi-tenancy, and high availability. BlockFrame solves local fault tolerance and transparent access for self-hosted scenarios. They address different parts of the storage stack.
+### 1. Storage Layer: Local Erasure Coding
+
+Standard RAID protects against disk failure. BlockFrame protects against _data corruption_ (bit rot) at the file level.
+
+- **Implementation:** Reed-Solomon encoding via `reed-solomon-simd` (SIMD-accelerated).
+- **Tiering Strategy:** Small files (<10MB) use RS(1,3) for high redundancy. Large datasets use RS(30,3), splitting files into 32MB segments grouped into blocks for storage efficiency.
+- **Why this matters:** Mathematical reconstruction of corrupted sectors without needing a 4-node cluster or ZFS.
+
+### 2. Access Layer: Virtual Filesystem (FUSE/WinFSP)
+
+Instead of writing a client library, I implemented a virtual filesystem driver.
+
+- **Mechanism:** The application intercepts syscalls (`open`, `read`, `seek`).
+- **On-the-fly repair:** When a user reads a file, BlockFrame performs a Merkle tree hash check. If the hash mismatches (corruption detected), it transparently pauses the read, reconstructs the data from parity shards in memory, and serves clean bytes to the caller.
+- **Result:** Applications work with the data natively without knowing it's being repaired in real-time.
+
+### Comparative Architecture
+
+| Aspect     | Object Storage (S3/Databricks)     | BlockFrame                             |
+| :--------- | :--------------------------------- | :------------------------------------- |
+| Interface  | HTTP API (`GET /bucket/key`)       | Syscall (`read()`, `seek()`)           |
+| Tooling    | Requires SDKs (`boto3`)            | Standard tools (Explorer, pandas, VLC) |
+| Recovery   | Replica-based (network)            | Parity-based (CPU/SIMD)                |
+| Complexity | Distributed consensus (Paxos/Raft) | Local state & Merkle proofs            |
+
+### Intended Deployment
+
+The design assumes a central server running BlockFrame with the archive mounted as a local drive. That mount point can then be shared over the network (SMB on Windows, NFS on Linux). This means:
+
+- Only the server needs BlockFrame installed
+- Clients connect to a standard network share
+- Access control uses existing OS-level permissions (Active Directory, Group Policy, etc.)
+- Data never leaves your infrastructure
+
+Remote mounting is also natively supported for direct connection to a BlockFrame server.
 
 ## What BlockFrame Provides
 
@@ -131,9 +155,9 @@ level = "info"
 - **Mount source priority** (first available is used):
   1. `--remote` flag (if provided)
   2. `--archive` flag (if provided)
-  3. `config.mount.default_remote` (if not empty) ⚠️
+  3. `config.mount.default_remote` (if not empty)
   4. `config.archive.directory` (fallback)
-- ⚠️ **Warning**: If you set `default_remote`, the mount command will connect to the remote server by default
+- **Warning**: If you set `default_remote`, the mount command will connect to the remote server by default
 - To use local archive when `default_remote` is set, use: `blockframe mount --archive archive_directory`
 - This eliminates the need to specify `--archive`, `--port`, or `--mountpoint` repeatedly
 - Adjust cache settings based on your system resources
@@ -330,6 +354,9 @@ Checking 15 files...
 
 ## Architecture
 
+<details>
+<summary>Click to see an architecture overview</summary>
+
 ```
 +------------------------------------------------------------------------------+
 |                                PUBLIC API                                    |
@@ -413,6 +440,8 @@ Checking 15 files...
 |       +-- logs/              <- runtime logs (logs/blockframe.log.*)         |
 +------------------------------------------------------------------------------+
 ```
+
+</details>
 
 ### Tiers
 
