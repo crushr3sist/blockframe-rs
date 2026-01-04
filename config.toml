@@ -1,3 +1,6 @@
+[archive]
+# Default directory for storing archived files
+directory = "archive_directory"
 
 [cache]
 # 1 segment = 32mb

@@ -1,0 +1,28 @@
+2026-01-04T05:23:47.064393Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:23:47.064415Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:23:47.070778Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:23:47.070785Z  INFO poem::server: server started
+2026-01-04T05:27:30.686701Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:27:30.686738Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:27:30.692637Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:27:30.692645Z  INFO poem::server: server started
+2026-01-04T05:29:53.826729Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:29:53.826744Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:29:53.831939Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:29:53.831945Z  INFO poem::server: server started
+2026-01-04T05:30:20.595270Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:30:20.595282Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:30:20.602616Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:30:20.602625Z  INFO poem::server: server started
+2026-01-04T05:31:44.351967Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:31:44.351985Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:31:44.357082Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:31:44.357087Z  INFO poem::server: server started
+2026-01-04T05:34:10.017660Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:34:10.017677Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:34:10.023509Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:34:10.023516Z  INFO poem::server: server started
+2026-01-04T05:35:33.318549Z  INFO blockframe: SERVE | archive directory set archive="archive_directory"
+2026-01-04T05:35:33.318566Z  INFO blockframe: CWD: Ok("H:\\rust\\projects\\blockframe-rs")
+2026-01-04T05:35:33.324402Z  INFO poem::server: listening addr=socket://0.0.0.0:8080
+2026-01-04T05:35:33.324408Z  INFO poem::server: server started

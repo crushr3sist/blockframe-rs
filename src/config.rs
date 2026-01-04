@@ -1,9 +1,20 @@
 use serde::Deserialize;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    pub archive: ArchiveConfig,
     pub cache: CacheConfig,
+    pub server: ServerConfig,
+    pub logging: LoggingConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArchiveConfig {
+    pub directory: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -12,9 +23,19 @@ pub struct CacheConfig {
     pub max_size: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ServerConfig {
+    pub default_port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoggingConfig {
+    pub level: String,
+}
+
 impl Config {
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_str = fs::read_to_string(Path::new(".cargo/config.toml"))?;
+        let config_str = fs::read_to_string(Path::new("config.toml"))?;
         let config: Config = toml::from_str(&config_str).map_err(|e| e.to_string())?;
         Ok(config)
     }

@@ -1,5 +1,6 @@
 use blockframe::{
     chunker::Chunker,
+    config::Config,
     filestore::FileStore,
     mount::{
         BlockframeFS,
@@ -44,12 +45,12 @@ enum Commands {
     /// Allows users to browse and download files via a web browser.
     Serve {
         /// Directory where chunks are stored.
-        #[arg(short, long, default_value = "archive_directory")]
-        archive: PathBuf,
+        #[arg(short, long)]
+        archive: Option<PathBuf>,
 
         /// Port to bind the server to.
-        #[arg(short, long, default_value_t = 8080)]
-        port: u16,
+        #[arg(short, long)]
+        port: Option<u16>,
     },
 
     /// Mount the archive as a virtual filesystem.
@@ -74,8 +75,8 @@ enum Commands {
     /// parity chunks exist, the file will be repaired.
     Health {
         /// Directory where chunks are stored.
-        #[arg(short, long, default_value = "archive_directory")]
-        archive: PathBuf,
+        #[arg(short, long)]
+        archive: Option<PathBuf>,
     },
 }
 
@@ -148,6 +149,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     init_logging();
 
+    // Load configuration file
+    let config = Config::load().map_err(|e| {
+        format!("Failed to load config.toml: {}. Make sure config.toml exists in the current directory.", e)
+    })?;
+
     let chunker = Chunker::new()?;
 
     match cli.command {
@@ -159,7 +165,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Health { archive } => {
-            let store = FileStore::new(&archive)?;
+            let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
+            let store = FileStore::new(&archive_path)?;
             let batch_report = store.batch_health_check()?;
             info!(
                 total_files = batch_report.total_files,
@@ -200,16 +207,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         //SECTION to be implimented
         Commands::Serve { archive, port } => {
-            info!(archive = archive.to_str(), "SERVE | archive directory set");
+            let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
+            let server_port = port.unwrap_or(config.server.default_port);
+
+            info!(
+                archive = archive_path.to_str(),
+                "SERVE | archive directory set"
+            );
             info!("CWD: {:?}", std::env::current_dir());
-            let config_port = option_env!("port").and_then(|s| s.parse().ok());
-            if let Some(p) = config_port {
-                run_server(archive, p).await?;
-                Ok(())
-            } else {
-                run_server(archive, port).await?;
-                Ok(())
-            }
+            run_server(archive_path, server_port).await?;
+            Ok(())
         }
 
         Commands::Mount {
