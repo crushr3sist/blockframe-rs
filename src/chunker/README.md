@@ -1,6 +1,6 @@
 # Chunker: File Segmentation and Erasure Coding
 
-This module takes a file, splits it into chunks, applies Reed-Solomon encoding for fault tolerance, and writes everything to disk with a manifest. It's stateless—you create a `Chunker`, call `commit()`, get a `ChunkedFile` result, done.
+This module takes a file, splits it into chunks, applies Reed-Solomon encoding for fault tolerance, and writes everything to disk with a manifest. It's stateless - you create a `Chunker`, call `commit()`, get a `ChunkedFile` result, done.
 
 ## Architecture
 

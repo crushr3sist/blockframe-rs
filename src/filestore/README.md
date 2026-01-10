@@ -2,7 +2,7 @@
 
 After the chunker scatters a file across hundreds of segments, you need something to keep track of where everything is. That's FileStore. It scans the archive, reads manifests, and handles the "give me this file" and "fix this corrupted segment" logic.
 
-No chunking happens here, no encoding—just discovery, reconstruction, and repair. I built it to be stateful (remembers the archive path) because passing that path to every function call was getting annoying.
+No chunking happens here, no encoding - just discovery, reconstruction, and repair. I built it to be stateful (remembers the archive path) because passing that path to every function call was getting annoying.
 
 ## Module Structure
 

@@ -5,7 +5,7 @@
 
 I started this project because I was sick of the "API Tax." I was working on a project involving Databricks and spent more time wrestling with authentication and network latency than actually processing data. I just wanted to use standard tools like `grep` on my own files, but I needed the durability guarantees of proper object storage.
 
-BlockFrame solves this by bringing Reed-Solomon erasure coding down to the local filesystem level. You act on it like a normal folder using FUSE (Linux) or WinFSP (Windows), but under the hood, it's splitting your files into chunks and protecting them against bit-rot and drive failure—no network required.
+BlockFrame solves this by bringing Reed-Solomon erasure coding down to the local filesystem level. You act on it like a normal folder using FUSE (Linux) or WinFSP (Windows), but under the hood, it's splitting your files into chunks and protecting them against bit-rot and drive failure - no network required.
 
 It's built specifically for local, write-once archival. It's not trying to replace S3 for the cloud, and it's definitely not for high-frequency dynamic writes. But if you want enterprise-grade durability for your local datasets without the complexity of a distributed cluster, this works.
 
@@ -17,17 +17,17 @@ BlockFrame differs from tools like MinIO or S3 by prioritizing **OS-level integr
 
 Standard RAID protects against disk failure. BlockFrame protects against _data corruption_ (bit rot) at the file level.
 
-- **Implementation:** Reed-Solomon encoding via `reed-solomon-simd` (SIMD-accelerated).
-- **Tiering Strategy:** Small files (<10MB) use RS(1,3) for high redundancy. Large datasets use RS(30,3), splitting files into 32MB segments grouped into blocks for storage efficiency.
-- **Why this matters:** Mathematical reconstruction of corrupted sectors without needing a 4-node cluster or ZFS.
+- Reed-Solomon encoding via `reed-solomon-simd` (SIMD-accelerated).
+- Small files (<10MB) use RS(1,3) for high redundancy. Large datasets use RS(30,3), splitting files into 32MB segments grouped into blocks for storage efficiency.
+- Mathematical reconstruction of corrupted sectors without needing a 4-node cluster or ZFS.
 
 ### 2. Access Layer: Virtual Filesystem (FUSE/WinFSP)
 
 Instead of writing a client library, I implemented a virtual filesystem driver.
 
-- **Mechanism:** The application intercepts syscalls (`open`, `read`, `seek`).
-- **On-the-fly repair:** When a user reads a file, BlockFrame performs a Merkle tree hash check. If the hash mismatches (corruption detected), it transparently pauses the read, reconstructs the data from parity shards in memory, and serves clean bytes to the caller.
-- **Result:** Applications work with the data natively without knowing it's being repaired in real-time.
+- The application intercepts syscalls (`open`, `read`, `seek`).
+- When a user reads a file, BlockFrame performs a Merkle tree hash check. If the hash mismatches (corruption detected), it transparently pauses the read, reconstructs the data from parity shards in memory, and serves clean bytes to the caller.
+- Applications work with the data natively without knowing it's being repaired in real-time.
 
 ### Comparative Architecture
 
@@ -66,12 +66,12 @@ Remote mounting is also natively supported for direct connection to a BlockFrame
 
 ### Prerequisites
 
-**Windows:**
+Windows:
 
 - [Rust toolchain](https://rustup.rs/) (stable)
 - [WinFSP](https://winfsp.dev/) v2.0 or later (required for mounting)
 
-**Linux:**
+Linux:
 
 - Rust toolchain (stable)
 - FUSE development libraries:
@@ -103,9 +103,9 @@ Binary will be available at `target/release/blockframe`.
 
 ### Configuration
 
-**Before running any commands**, create a `config.toml` file in the same directory as the blockframe executable. This file is **required** and provides default values for all commands.
+Before running any commands, create a `config.toml` file in the same directory as the blockframe executable. This file is required and provides default values for all commands.
 
-**Example `config.toml`:**
+Example `config.toml`:
 
 ```toml
 [archive]
@@ -142,15 +142,15 @@ default_port = 8080
 level = "info"
 ```
 
-**Configuration Behavior:**
+Configuration Behavior:
 
-- All CLI flags are **optional** - they override config defaults when provided
-- **Mount source priority** (first available is used):
+- All CLI flags are optional - they override config defaults when provided
+- Mount source priority (first available is used):
   1. `--remote` flag (if provided)
   2. `--archive` flag (if provided)
   3. `config.mount.default_remote` (if not empty)
   4. `config.archive.directory` (fallback)
-- **Warning**: If you set `default_remote`, the mount command will connect to the remote server by default
+- Warning: If you set `default_remote`, the mount command will connect to the remote server by default
 - To use local archive when `default_remote` is set, use: `blockframe mount --archive archive_directory`
 - This eliminates the need to specify `--archive`, `--port`, or `--mountpoint` repeatedly
 - Adjust cache settings based on your system resources
@@ -200,14 +200,14 @@ blockframe commit --file <PATH>
 
 - `--file, -f <PATH>`: Path to file to archive
 
-**Behaviour:**
+Behaviour:
 
 - Automatically selects tier based on file size
 - Generates Reed-Solomon parity shards
 - Builds Merkle tree for verification
 - Writes manifest, segments, and parity to `archive_directory/{filename}_{hash}/`
 
-**Example:**
+Example:
 
 ```bash
 blockframe commit --file /data/large-video.mp4
@@ -221,7 +221,7 @@ Mount archive as virtual filesystem.
 blockframe mount [--mountpoint <PATH>] [--archive <PATH> | --remote <URL>]
 ```
 
-**Arguments (all optional):**
+Arguments (all optional):
 
 - `--mountpoint, -m <PATH>`: Mount location (default: from `config.toml`)
   - Linux: directory path (e.g., `/mnt/blockframe`)
@@ -229,7 +229,7 @@ blockframe mount [--mountpoint <PATH>] [--archive <PATH> | --remote <URL>]
 - `--archive, -a <PATH>`: Local archive directory (default: from `config.toml`, conflicts with `--remote`)
 - `--remote, -r <URL>`: Remote BlockFrame server URL (default: from `config.toml`, conflicts with `--archive`)
 
-**Behaviour:**
+Behaviour:
 
 - If no flags are provided, uses all defaults from `config.toml`
 - If `default_remote` is set in config and no flags are given, connects to remote server
@@ -269,12 +269,12 @@ Start HTTP API server for remote access.
 blockframe serve [--archive <PATH>] [--port <PORT>]
 ```
 
-**Arguments (all optional):**
+Arguments (all optional):
 
 - `--archive, -a <PATH>`: Archive directory to serve (default: from `config.toml`)
 - `--port, -p <PORT>`: HTTP port (default: from `config.toml`)
 
-**Behaviour:**
+Behaviour:
 
 - Serves archive over HTTP with CORS enabled for cross-origin access
 - Provides file listing, manifest, and segment download endpoints
@@ -311,11 +311,11 @@ Scan archive for corruption and attempt repairs.
 blockframe health [--archive <PATH>]
 ```
 
-**Arguments (optional):**
+Arguments (optional):
 
 - `--archive, -a <PATH>`: Archive directory to check (default: from `config.toml`)
 
-**Behaviour:**
+Behaviour:
 
 - Scans all manifests in archive
 - Verifies segment hashes against Merkle tree
@@ -347,7 +347,7 @@ archive.tar: healthy (5 segments)
 
 ## Architecture
 
-**Module Structure:**
+Module Structure:
 
 - `chunker/` - File segmentation and Reed-Solomon encoding (commit_tiny, commit_segmented, commit_blocked)
 - `filestore/` - Archive operations (get_all, find, repair, reconstruct)
@@ -357,7 +357,7 @@ archive.tar: healthy (5 segments)
 - `config.rs` - Configuration management
 - `utils.rs` - BLAKE3 hashing and utilities
 
-**Core Dependencies:**
+Core Dependencies:
 
 - Reed-Solomon encoder/decoder (reed-solomon-simd)
 - Merkle tree for integrity verification
@@ -387,13 +387,13 @@ BlockFrame automatically selects encoding tier based on file size, balancing red
 | 3    | 1 – 35 GB    | RS(30,3) per block  | 10%      | Lose any 3 of 33 shards per block   |
 | 4    | > 35 GB      | Hierarchical        | ~12%     | Planned                             |
 
-**Tier 1** (tiny files): Entire file encoded as single unit. Maximum redundancy for critical small files.
+Tier 1 (tiny files): Entire file encoded as single unit. Maximum redundancy for critical small files.
 
-**Tier 2** (medium files): Each 32MB segment gets independent parity. Corruption in one segment does not affect others.
+Tier 2 (medium files): Each 32MB segment gets independent parity. Corruption in one segment does not affect others.
 
-**Tier 3** (large files): Segments grouped into blocks of 30, with block-level parity. Storage efficient for large datasets.
+Tier 3 (large files): Segments grouped into blocks of 30, with block-level parity. Storage efficient for large datasets.
 
-**Tier selection is automatic.** No manual configuration required.
+Tier selection is automatic. No manual configuration required.
 
 ---
 
@@ -419,7 +419,7 @@ Manifests are JSON. Segments and parity are raw binary. Everything is inspectabl
 
 ## How It Works
 
-**Encoding:**
+Encoding:
 
 1. File is memory-mapped (zero-copy reads)
 2. Split into 32MB segments
@@ -428,7 +428,7 @@ Manifests are JSON. Segments and parity are raw binary. Everything is inspectabl
 5. Merkle tree built from segment hashes
 6. Manifest, segments, and parity written to disk
 
-**Recovery:**
+Recovery:
 
 1. Filesystem read triggers hash verification
 2. If hash mismatch detected, load parity shards
@@ -460,11 +460,11 @@ Benchmarks measured using `cargo run -- commit --file <file>` on HDD storage.
 | 1.6 GB    | 3    | 36s         | 45 MB/s    |
 | 26.6 GB   | 3    | 27m 23s     | 16.6 MB/s  |
 
-**Tier 3 Performance:** Both Tier 3 files use RS(30,3) encoding with 10% storage overhead. The 1.6 GB file achieves 45 MB/s, writing 1.76 GB total (1.6 GB data + 160 MB parity) in 36 seconds. This approaches the HDD's rated sequential write speed of 88 MB/s when accounting for metadata writes and Merkle tree computation.
+Tier 3 Performance: Both Tier 3 files use RS(30,3) encoding with 10% storage overhead. The 1.6 GB file achieves 45 MB/s, writing 1.76 GB total (1.6 GB data + 160 MB parity) in 36 seconds. This approaches the HDD's rated sequential write speed of 88 MB/s when accounting for metadata writes and Merkle tree computation.
 
 The larger 26.6 GB file maintains 16.6 MB/s sustained throughput across 830 blocks. The performance difference is due to file system overhead - smaller files benefit from better cache locality and fewer directory operations.
 
-**SIMD Acceleration:** Reed-Solomon encoding completes in milliseconds per segment. The performance envelope is determined by storage write speeds, not computational throughput.
+SIMD Acceleration: Reed-Solomon encoding completes in milliseconds per segment. The performance envelope is determined by storage write speeds, not computational throughput.
 
 ### Projected Performance
 
@@ -503,29 +503,29 @@ Browse module READMEs for deeper technical insight into specific subsystems.
 
 ## Technical Notes
 
-**Reed-Solomon:** RS(n,k) codes provide mathematically guaranteed reconstruction from partial data loss. BlockFrame uses reed-solomon-simd for SIMD-accelerated encoding/decoding.
+Reed-Solomon: RS(n,k) codes provide mathematically guaranteed reconstruction from partial data loss. BlockFrame uses reed-solomon-simd for SIMD-accelerated encoding/decoding.
 
-**Memory-mapped I/O:** Files are memory-mapped for zero-copy reads. RAM usage remains constant regardless of file size. Kernel handles paging; application iterates through segments.
+Memory-mapped I/O: Files are memory-mapped for zero-copy reads. RAM usage remains constant regardless of file size. Kernel handles paging; application iterates through segments.
 
-**BLAKE3:** Used for all hashing (the `sha256` function name is historical). Faster than SHA-256 with better parallelization. Cryptographically secure.
+BLAKE3: Used for all hashing (the `sha256` function name is historical). Faster than SHA-256 with better parallelization. Cryptographically secure.
 
-**Cache:** Mounted filesystems use moka's W-TinyLFU for segment caching. Frequency-based eviction prevents cache pollution from sequential scans. See [mount/README.md](src/mount/README.md) for detailed cache analysis.
+Cache: Mounted filesystems use moka's W-TinyLFU for segment caching. Frequency-based eviction prevents cache pollution from sequential scans. See [mount/README.md](src/mount/README.md) for detailed cache analysis.
 
-**Concurrency:** FUSE allows serialized access (`&mut self`). WinFSP requires shared access (`&self`) due to Windows I/O threading model. Both implementations are thread-safe through different mechanisms.
+Concurrency: FUSE allows serialized access (`&mut self`). WinFSP requires shared access (`&self`) due to Windows I/O threading model. Both implementations are thread-safe through different mechanisms.
 
 ---
 
 ## Limitations
 
-**Write Operations:** Mounting is read-only. Archived files cannot be modified in-place. To update a file, commit a new version.
+Write Operations: Mounting is read-only. Archived files cannot be modified in-place. To update a file, commit a new version.
 
-**Tier 4:** Files over 35GB currently use Tier 3 encoding. Hierarchical Tier 4 is planned.
+Tier 4: Files over 35GB currently use Tier 3 encoding. Hierarchical Tier 4 is planned.
 
-**Compression:** Not implemented. Recommend compressing files before archiving if needed.
+Compression: Not implemented. Recommend compressing files before archiving if needed.
 
-**Encryption:** Not implemented. Use filesystem-level encryption (LUKS, BitLocker) or encrypt files before committing.
+Encryption: Not implemented. Use filesystem-level encryption (LUKS, BitLocker) or encrypt files before committing.
 
-**Distributed Storage:** Single-machine only. Remote mounting is supported but does not provide replication.
+Distributed Storage: Single-machine only. Remote mounting is supported but does not provide replication.
 
 ---
 
