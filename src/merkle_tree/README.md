@@ -1,9 +1,8 @@
 # Merkle Tree: proving nothing changed
 
-Merkle trees are the integrity backbone of Blockframe. When you have a file split into hundreds of segments, how do you know if segment 47 is corrupt without reading the entire file? Merkle trees solve this.
+When you split a file into hundreds of segments, checking integrity gets annoying. You can't just hash the whole file (too slow), and hashing every segment individually doesn't scale. Merkle trees solve this by letting you verify a single segment in O(log n) time instead of O(n).
 
-**Why Merkle trees?**
-Because checking a single hash isnt good enough for segmented files, and checking every segment hash is too slow.
+I use them because they're the only practical way to prove segment 47 is intact without reading segments 0-46.
 
 ## The architecture: trees made of hashes
 
@@ -18,29 +17,29 @@ merkle_tree/
     └── manifest.rs  # ManifestFile parsing and validation
 ```
 
-## Why Merkle Trees?
+## Comparison to Alternatives
 
-When you split a file into hundreds of segments, verifying integrity becomes expensive:
+When a file is split into hundreds of segments, verifying integrity becomes expensive:
 
-| Approach           | Verification Cost       | Partial Check | Corruption Localization | Why It Matters                           |
-| ------------------ | ----------------------- | ------------- | ----------------------- | ---------------------------------------- |
-| Single file hash   | O(n) - read entire file | ❌ No         | ❌ No                   | Slow, tells you IF corrupt but not WHERE |
-| Per-segment hashes | O(n) - check all        | ✅ Yes        | ✅ Yes                  | Still O(n), no proof of correctness      |
-| Merkle tree        | O(log n) - proof path   | ✅ Yes        | ✅ Yes                  | Fast + cryptographic proof               |
+| Approach           | Verification Cost       | Partial Check | Corruption Localization |
+| ------------------ | ----------------------- | ------------- | ----------------------- |
+| Single file hash   | O(n) - read entire file | No            | No                      |
+| Per-segment hashes | O(n) - check all        | Yes           | Yes                     |
+| Merkle tree        | O(log n) - proof path   | Yes           | Yes                     |
 
-Merkle trees give us:
+Merkle trees provide:
 
-1. **Partial verification** , Verify segment 47 without reading segments 0-46
-2. **Corruption localization** , Know exactly which segment corrupted ("segment 47 hash doesnt match leaf 47")
-3. **Distributed verification** , Different machines can verify different branches independently
-4. **Efficient updates** , Changing one segment only updates O(log n) hashes, not all of them
-5. **Cryptographic proof** , You can prove segment 47 belongs to file X without revealing other segments
+1. Partial verification - verify segment 47 without reading segments 0-46
+2. Corruption localization - identify exact segment that's corrupt
+3. Distributed verification - different machines verify different branches
+4. Efficient updates - changing one segment only updates O(log n) hashes
+5. Cryptographic proof - prove segment 47 belongs to file X without revealing other segments
 
-## What youre working with: the types
+## Types
 
 ### `MerkleTree`
 
-The full tree structure. Usually you only care about the root, but the tree holds everything.
+Full tree structure. Usually only the root is needed, but the tree holds everything.
 
 ```rust
 pub struct MerkleTree {
@@ -50,11 +49,7 @@ pub struct MerkleTree {
 }
 ```
 
-**The root** is the file's identity. If two files have the same root hash, they are identical. If the root changes, something in the file changed.
-
-**The leaves** are the segment hashes. Each leaf represents one segment (and its parity in Blockframe).
-
-**The chunks** are rarely used, we dont store the actual data in the tree, just the hashes.
+The root is the file's identity. The leaves are segment hashes. The chunks are rarely used.
 
 ### `Node`
 
@@ -68,9 +63,7 @@ pub struct Node {
 }
 ```
 
-**Leaf nodes:** `left` and `right` are `None`, `hash_val` is the segment hash.
-
-**Internal nodes:** `hash_val` is `BLAKE3(left.hash_val + right.hash_val)`, the hash of the concatenated child hashes.
+Leaf nodes have no children. Internal nodes hash the concatenation of their children's hashes.
 
 ## Building the tree: from segments to root
 
@@ -300,7 +293,7 @@ if root == known_good_root {
 
 This wraps the Merkle tree with file metadata (filename, size, tier, timestamps, etc.). See [manifest.rs](manifest.rs#L1) for the full structure.
 
-## Proof generation: checking the proof
+## Proof Generation
 
 ### `get_proof(chunk_index) -> Vec<String>`
 
@@ -313,6 +306,8 @@ let proof = tree.get_proof(47)?;  // Proof for segment 47
 // proof contains: [sibling_hash, uncle_hash, ...]
 // Verifier can recompute path to root using only segment 47 + proof
 ```
+
+For n leaves, proof has log₂(n) hashes. For 1000 segments, proof is ~10 hashes (~640 bytes).
 
 ## Verification
 
@@ -328,7 +323,7 @@ let is_valid = MerkleTree::verify_proof(
 )?;
 ```
 
-**Algorithm:**
+Algorithm:
 
 1. Start with chunk hash
 2. For each sibling in proof, combine and hash upward
@@ -491,60 +486,12 @@ Where n = number of leaves (segments).
 
 The bottleneck is always disk I/O (reading segments), not Merkle operations.
 
-## Security properties: why you can trust this
+## Security Properties
 
-**Collision resistance:**
-Inherited from BLAKE3. Finding two different inputs with the same hash is computationally infeasible (2^128 operations).
-
-**Preimage resistance:**
-Cant reverse a hash to find the original data. Given a leaf hash, you cant forge the segment.
-
-**Second preimage resistance:**
-Cant find a different segment that hashes to the same value as your segment. If you change one byte, the hash changes.
-
-**Tamper detection:**
-Any modification to any segment changes its hash → changes its parent hash → propagates to root. You cant change segment 47 without changing the root, and you cant forge a new root that matches (preimage resistance).
-
-**Proof forgery resistance:**
-To fake a proof, youd need to find a segment hash that, when combined with the proof siblings, produces the correct root. This requires breaking BLAKE3's preimage resistance.
-
-## Future: distributed verification
-
-Merkle trees enable verification across multiple machines without trusting any single machine.
-
-**The pattern:**
-
-```
-File with 1000 segments split across 2 machines:
-
-Machine A: Verify left subtree (segments 0-499)
-  - Build tree from segments 0-499
-  - Report subtree root: abc123...
-
-Machine B: Verify right subtree (segments 500-999)
-  - Build tree from segments 500-999
-  - Report subtree root: def456...
-
-Coordinator:
-  - Combine subtree roots
-  - Hash: parent = BLAKE3(abc123 + def456)
-  - Compare to known root
-  - If match → both subtrees valid
-  - If mismatch → at least one machine has corrupt data
-```
-
-Each machine only needs:
-
-- Its segments (500 out of 1000)
-- The sibling subtree root (one hash)
-
-**Use case:** Distributed archive verification across a cluster. Each node verifies its portion, coordinator confirms the whole.
-
----
-
-_For commit process details, see [chunker/README.md](../chunker/README.md)_  
-_For repair and reconstruction, see [filestore/README.md](../filestore/README.md)_  
-_For mounting and remote access, see [mount/README.md](../mount/README.md)_
+- **Collision resistance:** Inherited from BLAKE3
+- **Preimage resistance:** Cannot forge segment to match hash
+- **Second preimage resistance:** Cannot find different segment with same hash
+- **Tamper detection:** Any modification changes root hash
 
 ```rust
 pub struct ManifestFile {

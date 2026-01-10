@@ -3,17 +3,11 @@
 ![alt text](final.png)
 [![Release](https://github.com/crushr3sist/blockframe-rs/actions/workflows/release.yml/badge.svg)](https://github.com/crushr3sist/blockframe-rs/actions/workflows/release.yml)
 
-A self-hosted, erasure-coded storage engine implemented in Rust. It provides Reed-Solomon fault tolerance on local disks and exposes archives via a transparent virtual filesystem (FUSE/WinFSP).
+I started this project because I was sick of the "API Tax." I was working on a project involving Databricks and spent more time wrestling with authentication and network latency than actually processing data. I just wanted to use standard tools like `grep` on my own files, but I needed the durability guarantees of proper object storage.
 
-## Motivation
+BlockFrame solves this by bringing Reed-Solomon erasure coding down to the local filesystem level. You act on it like a normal folder using FUSE (Linux) or WinFSP (Windows), but under the hood, it's splitting your files into chunks and protecting them against bit-rot and drive failure—no network required.
 
-This project was born out of frustration with the "API Tax" I encountered while working in the energy sector.
-
-My task was straightforward: build a fullstack application to render datasets managed by Databricks. The reality was a mess of brittle Python API wrappers, authentication handshakes, and network latency just to get a byte stream into my application. Hours went into wrestling with auth tokens and query interfaces that felt completely foreign to how I normally work with files.
-
-I kept thinking: _there must be a better way to work with data you own_. Tools like `pandas` and `grep` are optimized for filesystems, not HTTP APIs. Cloud abstractions solve scale problems, but they often hinder data locality for teams that just need to read their own files without the ceremony.
-
-BlockFrame is my engineering experiment to answer the question: **Can we bring the durability guarantees of distributed object storage (erasure coding, bit-rot protection) down to the local filesystem level, removing the network bottleneck entirely?**
+It's built specifically for local, write-once archival. It's not trying to replace S3 for the cloud, and it's definitely not for high-frequency dynamic writes. But if you want enterprise-grade durability for your local datasets without the complexity of a distributed cluster, this works.
 
 ## Core Engineering Approach
 
@@ -55,17 +49,16 @@ The design assumes a central server running BlockFrame with the archive mounted 
 
 Remote mounting is also natively supported for direct connection to a BlockFrame server.
 
-## What BlockFrame Provides
+## Features
 
-**Erasure Coding:** Reed-Solomon encoding at multiple tiers. Small files get RS(1,3) for maximum redundancy. Large files use RS(30,3) block-level encoding for storage efficiency. Automatic tier selection based on file size.
-
-**Transparent Mounting:** FUSE (Linux) and WinFSP (Windows) filesystem implementations. Access archived files through standard filesystem operations without manual restoration. On-the-fly segment recovery from parity when corruption is detected.
-
-**Offline Capability:** All operations work without network access. Recovery, verification, and mounting function purely from local disk state.
-
-**Self-Healing:** Hash verification on every read. Automatic reconstruction from parity when segment corruption is detected. Corrupted segments are replaced in-place.
-
-**Zero Configuration:** Single binary with sensible defaults. No database setup, no cluster coordination, no external services.
+- Reed-Solomon erasure coding at multiple tiers (RS(1,3) for small files, RS(30,3) for large files)
+- Automatic tier selection based on file size
+- FUSE (Linux) and WinFSP (Windows) filesystem mounting
+- On-the-fly segment recovery from parity when corruption is detected
+- Hash verification on every read
+- Automatic reconstruction and in-place repair of corrupted segments
+- Single binary with config file (config.toml)
+- No external database or services required
 
 ---
 
@@ -344,104 +337,44 @@ blockframe health --archive /backup/archive
 
 ```
 Checking 15 files...
-✓ video.mp4: healthy (120 segments)
-✗ dataset.bin: 3 corrupt segments
-  → Recovered from parity: segments 45, 67, 89
-✓ archive.tar: healthy (5 segments)
+video.mp4: healthy (120 segments)
+dataset.bin: 3 corrupt segments
+  Recovered from parity: segments 45, 67, 89
+archive.tar: healthy (5 segments)
 ```
 
 ---
 
 ## Architecture
 
-<details>
-<summary>Click to see an architecture overview</summary>
+**Module Structure:**
 
-```
-+------------------------------------------------------------------------------+
-|                                PUBLIC API                                    |
-|                                                                              |
-|        commit()           find()           repair()         reconstruct()    |
-|                                                                              |
-|             CLI (binary): commit, serve, mount, health (clap)                |
-|                                                                              |
-+------------------------------------------------------------------------------+
-                                    |
-                                    v
-+------------------------------------------------------------------------------+
-|                            PROCESSING MODULES                                |
-|                                                                              |
-|   +---------------------------+        +---------------------------+         |
-|   |         CHUNKER           |        |        FILESTORE          |         |
-|   |                           |        |                           |         |
-|   |   commit_tiny   (Tier 1)  |        |   get_all                 |         |
-|   |   commit_segmented (T2)   |        |   find                    |         |
-|   |   commit_blocked (Tier 3) |        |   repair                  |         |
-|   |   generate_parity         |        |   reconstruct             |         |
-|   +---------------------------+        +---------------------------+         |
-+------------------------------------------------------------------------------+
-                                    |
-                                    v
-+------------------------------------------------------------------------------+
-|                            CORE COMPONENTS                                   |
-|                                                                              |
-|   +--------------+  +--------------+  +--------------+  +--------------+     |
-|   | REED-SOLOMON |  | MERKLE TREE  |  |   MANIFEST   |  |    UTILS     |     |
-|   |              |  |              |  |              |  |              |     |
-|   | Encoder      |  | build_tree   |  | parse        |  | blake3 hash  |     |
-|   | Decoder      |  | get_proof    |  | validate     |  | segment_size |     |
-|   | SIMD accel   |  | verify       |  | serialize    |  |              |     |
-|   +--------------+  +--------------+  +--------------+  +--------------+     |
-|   +--------------+  +--------------+                                         |
-|   |   CONFIG     |  |   LOGGING    |   (config.toml, tracing + logs)         |
-|   +--------------+  +--------------+                                         |
-+------------------------------------------------------------------------------+
-                                    |
-                                    v
-+------------------------------------------------------------------------------+
-|                               I/O LAYER                                      |
-|                                                                              |
-|        +--------------+      +--------------+      +--------------+          |
-|        |  BufWriter   |      |   memmap2    |      |    Rayon     |          |
-|        |              |      |              |      |              |          |
-|        | buffered     |      | zero-copy    |      | parallel     |          |
-|        | disk writes  |      | file reads   |      | processing   |          |
-|        +--------------+      +--------------+      +--------------+          |
-+------------------------------------------------------------------------------+
-                                    |
-                                    v
-+------------------------------------------------------------------------------+
-|                               SERVICE LAYER                                  |
-|                                                                              |
-|        +--------------+      +--------------+      +--------------+          |
-|        |  BufWriter   |      |   memmap2    |      |    Rayon     |          |
-|        |              |      |              |      |              |          |
-|        | buffered     |      | zero-copy    |      | parallel     |          |
-|        | disk writes  |      | file reads   |      | processing   |          |
-|        +--------------+      +--------------+      +--------------+          |
-|     +--------------------+   +----------------------+   +----------------+|  |
-|     | HTTP API (Poem)    |   | Mount (FUSE / WinFsp)|   | Health / Repair |  |
-|     |  /api/files        |   |  (LocalSource /      |   | CLI (daemon)    |  |
-|     |  /files/*/manifest |   |   RemoteSource)      |   |                 |  |
-|     +--------------------+   +----------------------+   +-----------------+  |
-+------------------------------------------------------------------------------+
-                                    |
-                                    v
-+------------------------------------------------------------------------------+
-|                              FILE SYSTEM                                     |
-|                                                                              |
-|   archive_directory/                                                         |
-|   +-- {filename}_{hash}/                                                     |
-|       +-- manifest.json      <- merkle root, hashes, metadata                |
-|       +-- segments/          <- original data in 32MB chunks                 |
-|       +-- parity/            <- reed-solomon parity shards                   |
-|       +-- blocks/            <- tier 3: groups of 30 segments                |
-|       +-- reconstructed/     <- recovered files after `reconstruct()`        |
-|       +-- logs/              <- runtime logs (logs/blockframe.log.*)         |
-+------------------------------------------------------------------------------+
-```
+- `chunker/` - File segmentation and Reed-Solomon encoding (commit_tiny, commit_segmented, commit_blocked)
+- `filestore/` - Archive operations (get_all, find, repair, reconstruct)
+- `merkle_tree/` - Hash tree construction and verification
+- `mount/` - FUSE/WinFSP filesystem implementations (LocalSource, RemoteSource)
+- `serve/` - HTTP API server (Poem)
+- `config.rs` - Configuration management
+- `utils.rs` - BLAKE3 hashing and utilities
 
-</details>
+**Core Dependencies:**
+
+- Reed-Solomon encoder/decoder (reed-solomon-simd)
+- Merkle tree for integrity verification
+- Manifest parser and validator
+- BLAKE3 hashing
+
+**I/O Layer:**
+
+- BufWriter for buffered disk writes
+- memmap2 for zero-copy file reads
+- Rayon for parallel processing
+
+**Service Layer:**
+
+- HTTP API (Poem) for remote access
+- FUSE (Linux) / WinFSP (Windows) for filesystem mounting
+- Health checking and repair CLI
 
 ### Tiers
 

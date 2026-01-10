@@ -1,6 +1,6 @@
 # Chunker: File Segmentation and Erasure Coding
 
-The chunker transforms files into fault-tolerant archives using Reed-Solomon erasure coding and Merkle tree verification. It handles file segmentation, parity generation, and metadata persistence.
+This module takes a file, splits it into chunks, applies Reed-Solomon encoding for fault tolerance, and writes everything to disk with a manifest. It's stateless—you create a `Chunker`, call `commit()`, get a `ChunkedFile` result, done.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ File size determines encoding strategy automatically.
 
 Files under 10 MB are encoded as a single unit with RS(1,3). The entire file is read into memory, encoded to produce 3 parity shards, and written to disk.
 
-**Storage Layout:**
+Storage Layout:
 
 ```
 filename_hash/
@@ -57,15 +57,15 @@ filename_hash/
 └── parity_2.dat     # Recovery shard 2
 ```
 
-**Recovery:** Any single shard (data or parity) can reconstruct the original file.
+Recovery: Any single shard (data or parity) can reconstruct the original file.
 
-**Overhead:** 300% (4x total storage). A 1 MB file becomes 4 MB on disk.
+Overhead: 300% (4x total storage). A 1 MB file becomes 4 MB on disk.
 
 ### Tier 2: commit_segmented
 
 Files between 10 MB and 1 GB are segmented into 32 MB chunks. Each segment receives independent RS(1,3) parity shards.
 
-**Process:**
+Process:
 
 1. Memory-map the file
 2. Iterate in 32 MB segments
@@ -75,7 +75,7 @@ Files between 10 MB and 1 GB are segmented into 32 MB chunks. Each segment recei
 6. Build Merkle tree from segment hashes
 7. Write manifest
 
-**Storage Layout:**
+Storage Layout:
 
 ```
 filename_hash/
@@ -91,21 +91,21 @@ filename_hash/
     └── ...
 ```
 
-**Recovery:** Per-segment recovery. If segment 5 corrupts, only segment 5 requires reconstruction.
+Recovery: Per-segment recovery. If segment 5 corrupts, only segment 5 requires reconstruction.
 
-**Overhead:** 300%
+Overhead: 300%
 
-**Why 32 MB segments?** Balance between file count (OS overhead) and recovery granularity.
+32 MB segments balance file count (OS overhead) and recovery granularity.
 
 ### Tier 3: commit_blocked
 
 Files between 1 GB and 35 GB use block-level parity. Segments are grouped into blocks of 30, with 3 parity shards covering the entire block.
 
-**Encoding:** RS(30,3) - 30 data segments + 3 parity segments per block.
+Encoding: RS(30,3) - 30 data segments + 3 parity segments per block.
 
-**Recovery Capability:** Any 30 of 33 shards can reconstruct all 30 original segments. Can lose any 3 shards per block.
+Recovery Capability: Any 30 of 33 shards can reconstruct all 30 original segments. Can lose any 3 shards per block.
 
-**Process:**
+Process:
 
 1. Memory-map entire file
 2. Calculate block count (file_size / (32 MB × 30))
@@ -117,7 +117,7 @@ Files between 1 GB and 35 GB use block-level parity. Segments are grouped into b
 5. Build Merkle tree from segment hashes
 6. Write manifest
 
-**Storage Layout:**
+Storage Layout:
 
 ```
 filename_hash/
@@ -136,23 +136,23 @@ filename_hash/
         └── ...
 ```
 
-**Overhead:** 10% (3/30 = 10%)
+Overhead: 10% (3/30 = 10%)
 
-**Parallelism:** Blocks are processed in parallel using Rayon.
+Parallelism: Blocks are processed in parallel using Rayon.
 
-**Why 30 segments per block?** Optimal balance between storage efficiency (10% overhead) and recovery time.
+30 segments per block balances storage efficiency (10% overhead) and recovery time.
 
 ## Reed-Solomon Erasure Coding
 
 Reed-Solomon codes provide mathematically guaranteed reconstruction from partial data loss.
 
-**RS(N, K):** N data shards, K parity shards. Total N+K shards. Any N shards can reconstruct all N original shards.
+RS(N, K): N data shards, K parity shards. Total N+K shards. Any N shards can reconstruct all N original shards.
 
-**Example:** RS(30,3) produces 33 total shards. Delete any 3 shards → remaining 30 can reconstruct all 30 original segments.
+Example: RS(30,3) produces 33 total shards. Delete any 3 shards - remaining 30 can reconstruct all 30 original segments.
 
-**Constraint:** All shards must be equal size. Last segment is padded with zeros if needed. Manifest stores original size for truncation after recovery.
+Constraint: All shards must be equal size. Last segment is padded with zeros if needed. Manifest stores original size for truncation after recovery.
 
-**Implementation:** Uses `reed-solomon-simd` for SIMD-accelerated encoding.
+Implementation: Uses `reed-solomon-simd` for SIMD-accelerated encoding.
 
 ## Parity Generation
 

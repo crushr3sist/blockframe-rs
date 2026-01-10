@@ -1,35 +1,33 @@
 # FileStore: finding and fixing your files
 
-The filestore is Blockframe's librarian. It knows where everything is, can find what you need, and when something breaks, it knows how to fix it. No chunking, no encoding, just discovery, reconstruction, and repair.
+After the chunker scatters a file across hundreds of segments, you need something to keep track of where everything is. That's FileStore. It scans the archive, reads manifests, and handles the "give me this file" and "fix this corrupted segment" logic.
 
-**Why do we need this?**
-After the chunker has done its job and scattered your file across hundreds of segments, someone needs to keep track of it all. Thats FileStore. It scans the archive, reads manifests, and provides a clean API for "give me this file" or "fix this corrupted file".
+No chunking happens here, no encoding—just discovery, reconstruction, and repair. I built it to be stateful (remembers the archive path) because passing that path to every function call was getting annoying.
 
-## The architecture: stateful but simple
+## Module Structure
 
 ```
 filestore/
-    │
     ├── mod.rs       # Discovery, reconstruction, path utilities
-    ├── health.rs    # Repair functions per tier (the self-healing magic)
+    ├── health.rs    # Repair functions per tier
     ├── models.rs    # File and manifest data structures
     └── tests.rs     # Health check and reconstruction tests
 ```
 
-Unlike the chunker (stateless), FileStore holds onto the archive path. It's a manager, it knows where the archive lives and scans it on demand.
+Unlike the chunker (stateless), FileStore holds onto the archive path.
 
-## What youre working with: the types
+## Types
 
 ### `FileStore`
 
-The archive manager. You point it at a directory, it figures out whats inside.
+The archive manager. You point it at a directory, it figures out what's inside.
 
 ```rust
 let store = FileStore::new(Path::new("archive_directory"))?;
 let files = store.get_all()?;  // Scans and returns all committed files
 ```
 
-**Stateful** means it remembers the archive path. You dont pass it to every function call. Create once, use many times.
+Stateful - remembers the archive path. Create once, use many times.
 
 ### `File`
 
@@ -47,7 +45,7 @@ When you call `store.find("movie.mkv")`, you get back a `File` struct. From ther
 
 ### `FileData`
 
-The minimal info needed to locate a file in the archive.
+Minimal info needed to locate a file in the archive.
 
 ```rust
 pub struct FileData {
@@ -56,7 +54,7 @@ pub struct FileData {
 }
 ```
 
-**Why store the hash?** Filenames can collide (two files named `data.bin` with different content). The hash is the true identity. Archive directories are named `filename_hash` for uniqueness.
+Filenames can collide (two files named `data.bin` with different content). The hash is the true identity. Archive directories are named `filename_hash` for uniqueness.
 
 ## Discovery: whats in the archive?
 
@@ -110,7 +108,7 @@ let manifests = store.all_files()?;
 println!("Archive contains {} files", manifests.len());
 ```
 
-## Reconstruction: putting it back together
+## Reconstruction
 
 ### `reconstruct(file) -> Result<()>`
 
@@ -122,24 +120,22 @@ store.reconstruct(&file)?;
 // File written to: reconstructed/movie.mkv
 ```
 
-**Auto-routing:** Checks `file.manifest.tier` and calls the appropriate reconstruction method. You dont pick, it picks for you.
+Checks `file.manifest.tier` and calls the appropriate reconstruction method.
 
-### `tiny_reconstruct` , Tier 1
+### `tiny_reconstruct` - Tier 1
 
-The easiest case: the original file is stored as `data.dat`. Just copy it.
+The original file is stored as `data.dat`. Copy it.
 
 ```rust
 let data = fs::read("archive/file_hash/data.dat")?;
 fs::write("reconstructed/file.txt", data)?;
 ```
 
-No assembly required. Done in one read + one write.
+### `segment_reconstruct` - Tier 2/3
 
-### `segment_reconstruct` , Tier 2/3
+For segmented files, reassemble by reading segments in order and concatenating them.
 
-For segmented files, we reassemble by reading segments in order and concatenating them.
-
-**The process:**
+Process:
 
 1. Open output file for writing
 2. For i in 0..num_segments:
@@ -147,16 +143,11 @@ For segmented files, we reassemble by reading segments in order and concatenatin
    - Append to output file
 3. Verify final file hash matches manifest
 
-**Why verify?** Because if segments are corrupted, concatenating them gives you a corrupt file. Better to detect it here than after the user tries to use it.
+Performance: Limited by sequential disk read speed. For a 10GB file on HDD: ~60 seconds. On SSD: ~10 seconds.
 
-**Performance:** Limited by sequential disk read speed. For a 10GB file on HDD: ~60 seconds. On SSD: ~10 seconds.
+## Repair
 
-## Repair: the self-healing magic
-
-![alt text](RepairFlowDiagram.png)
-(Decision tree: File → check tier → tier 1/2/3 repair strategy → RS decode if needed → write recovered data)
-
-This is where Reed-Solomon pays off. When a segment corrupts, we dont need backups, we can mathematically reconstruct it from the surviving segments and parity shards.
+When a segment corrupts, we can mathematically reconstruct it from the surviving segments and parity shards.
 
 ### `repair(file) -> Result<()>`
 
@@ -167,32 +158,30 @@ let file = store.find(&"important_data.bin".to_string())?;
 store.repair(&file)?;  // Auto-detects tier and repairs
 ```
 
-**Auto-routing:** Checks tier, calls `repair_tiny`, `repair_segment`, or `repair_blocked`. You dont need to know which tier the file is, just call repair.
+Checks tier, calls `repair_tiny`, `repair_segment`, or `repair_blocked`.
 
-### `repair_tiny` , Tier 1 (the simple swap)
+### `repair_tiny` - Tier 1
 
-Tier 1 files have 1 data file (`data.dat`) and 3 parity files. If `data.dat` corrupts, we just copy a parity file over it. No Reed-Solomon decoding needed, they're all full copies.
+Tier 1 files have 1 data file (`data.dat`) and 3 parity files. If `data.dat` corrupts, copy a parity file over it. No Reed-Solomon decoding needed.
 
-**The strategy:**
+Strategy:
 
 1. Read `data.dat`, compute BLAKE3 hash
 2. Compare to `manifest.original_hash`
-3. If match → file is healthy, done
-4. If mismatch → corruption detected, try parity files
+3. If match - file is healthy, done
+4. If mismatch - corruption detected, try parity files
 5. For each `parity_N.dat`:
    - Read it, compute hash
-   - If hash matches manifest → copy to `data.dat`, done
-6. If no parity files match → unrecoverable (all 4 copies are corrupt)
+   - If hash matches manifest - copy to `data.dat`, done
+6. If no parity files match - unrecoverable (all 4 copies are corrupt)
 
-**Why this works:** RS(1,3) encoding means the 3 parity files are functionally identical to the data file. Any one of them can replace the original.
+RS(1,3) encoding means the 3 parity files are functionally identical to the data file. Any one of them can replace the original.
 
-**Edge case:** What if `data.dat` is missing entirely? Same process, we copy from first valid parity file.
+### `repair_segment` - Tier 2
 
-### `repair_segment` , Tier 2 (per-segment recovery)
+Tier 2 files have per-segment parity. Check each segment independently, recover the corrupt ones.
 
-Tier 2 files have per-segment parity. We check each segment independently, recover the corrupt ones.
-
-**The strategy:**
+Strategy:
 
 1. For each segment index `i`:
    - Read `segment_i.dat` + its 3 parity files
@@ -207,21 +196,19 @@ Tier 2 files have per-segment parity. We check each segment independently, recov
    - Verify recovered segment hash matches manifest
    - Write recovered segment to `segment_i.dat`
 
-**How RS(1,3) recovery works:**
-Reed-Solomon with 1 data shard + 3 parity shards can recover the 1 data shard from ANY 1 of the parity shards. So even if the segment is completely gone, we can reconstruct it perfectly.
+RS(1,3) can recover the 1 data shard from ANY 1 of the parity shards. Even if the segment is completely gone, we can reconstruct it perfectly.
 
-**Limitations:**
+Limitations:
 
 - Can recover if segment is corrupt/missing but parity is intact
-- **Cannot** recover if segment + all 3 parity are corrupt (need at least 1 valid shard)
-- In practice, the chance of 4 independent corruptions in the same segment is astronomically low
+- Cannot recover if segment + all 3 parity are corrupt (need at least 1 valid shard)
 
-**Performance:** For a 1GB file with 10 corrupt segments out of 32 total segments:
+Performance: For a 1GB file with 10 corrupt segments out of 32 total segments:
 
 - Detect corruption: ~2 seconds (hash all segments)
 - Recover 10 segments: ~500ms (RS decoding is fast)
 - Write recovered segments: ~300ms
-- **Total: ~3 seconds**
+- Total: ~3 seconds
 
 ### `repair_blocked` , Tier 3 (block-level recovery)
 
@@ -256,13 +243,13 @@ Block 0 has 30 segments (segment_0 through segment_29)
 Corruption detected: segment_5, segment_12, segment_21
 
 Recovery process:
+
 1. Read segments 0-4, 6-11, 13-20, 22-29 (27 valid segments)
 2. Read parity_0.dat, parity_1.dat, parity_2.dat (3 parity shards)
 3. Feed all 30 shards to RS decoder
 4. Decoder outputs segments 5, 12, 21 (recovered)
 5. Verify recovered segment hashes match Merkle tree
 6. Write segment_5.dat, segment_12.dat, segment_21.dat
-
 
 **Performance:** For a 10GB file with 3 corrupt segments in one block:
 
@@ -338,118 +325,39 @@ if combined_hash != manifest.merkle_tree.leaves[5] {
 
 **Why hash segment+parity together?** Because we want to detect parity corruption too. If we only hashed segments, corrupt parity would go unnoticed until we tried to use it for recovery (too late).
 
-## Usage patterns: how to actually use this
+## Usage Patterns
 
-### Full archive health check
-
-Scan everything, repair anything broken, report results.
+### Full Archive Health Check
 
 ```rust
 let store = FileStore::new(Path::new("archive_directory"))?;
 for file in store.get_all()? {
     match store.repair(&file) {
-        Ok(_) => println!("{}: ✓ healthy or repaired", file.file_name),
-        Err(e) => println!("{}: ✗ unrecoverable - {}", file.file_name, e),
+        Ok(_) => println!("{}: healthy or repaired", file.file_name),
+        Err(e) => println!("{}: unrecoverable - {}", file.file_name, e),
     }
 }
 ```
 
-**When to use:** Scheduled maintenance, after hardware issues, or before critical operations.
-
-### Targeted repair
-
-You know a specific file is broken, just fix it.
+### Targeted Repair
 
 ```rust
 let store = FileStore::new(Path::new("archive_directory"))?;
-let critical = store.find(&"critical_data.bin".to_string())?;
-store.repair(&critical)?;
-println!("Repaired critical_data.bin");
+let dataset = store.find(&"critical_data.bin".to_string())?;
+store.repair(&dataset)?;
+store.reconstruct(&dataset)?;
 ```
 
-### Verify without repairing
+## Error Handling
 
-Check if a file is healthy without attempting repairs.
-
-```rust
-let file = store.find(&"dataset.bin".to_string())?;
-let segments = store.get_segments_paths(&file)?;
-
-let mut corrupt_count = 0;
-for (i, seg_path) in segments.iter().enumerate() {
-    let seg_data = fs::read(seg_path)?;
-    let actual_hash = blake3::hash(&seg_data).to_hex();
-    let expected_hash = &file.manifest.merkle_tree.leaves[i];
-
-    if actual_hash.as_str() != expected_hash {
-        corrupt_count += 1;
-    }
-}
-
-if corrupt_count > 0 {
-    println!("{} segments corrupted, repair needed", corrupt_count);
-} else {
-    println!("All segments healthy");
-}
-```
-
-### Bulk reconstruction
-
-Extract all files from archive.
-
-```rust
-let store = FileStore::new(Path::new("archive_directory"))?;
-for file in store.get_all()? {
-    match store.reconstruct(&file) {
-        Ok(_) => println!("Reconstructed: {}", file.file_name),
-        Err(e) => eprintln!("Failed {}: {}", file.file_name, e),
-    }
-}
-```
-
-## Error handling: when things go wrong
-
-All functions return `Result<T, Box<dyn std::error::Error>>`. Common failures:
-
-**"File not found"**
-
-- The file was never committed to this archive, or the manifest is missing.
-- Check: does the directory exist in `archive_directory`? Does it have `manifest.json`?
-
-**"Segment hash mismatch"**
-
-- Segment is corrupt. If repair fails with this, parity is also corrupt → unrecoverable.
-- Action: restore from backup or accept data loss.
-
-**"Not enough shards for recovery"**
-
-- Too many segments/parity files are corrupt. RS cant recover with the remaining shards.
-- Tier 2: need at least 1 valid shard (data or parity) per segment.
-- Tier 3: need at least 30 valid shards per block.
-
-**"Manifest parse error"**
-
-- The `manifest.json` file is corrupt or invalid JSON.
-- Action: if you have a backup manifest, restore it. Otherwise, file is unrecoverable (we dont know the structure).
-
-**"Permission denied"**
-
-- Cant read/write files in archive or reconstructed directory.
-- Check: file permissions, SELinux/AppArmor policies, disk full.
-
-## Future improvements
-
-- **Incremental verification:** Only check segments that havent been verified recently (track last-check timestamps).
-- **Parallel repair:** Repair multiple files or blocks simultaneously (currently sequential).
-- **Repair progress reporting:** Show progress bar for long repairs (tier 3 with many corrupt blocks).
-- **Smart parity rebuild:** If parity is corrupt but data is fine, regenerate parity from data (cheaper than full RS decode).
-- **Index caching:** Build an in-memory index of all files on first scan, make `find()` O(1) instead of O(n).
-
----
-
-_For chunking details, see [chunker/README.md](../chunker/README.md)_  
-_For Merkle tree internals, see [merkle_tree/README.md](../merkle_tree/README.md)_  
-_For mounting and accessing files, see [mount/README.md](../mount/README.md)_
+| Error                          | Cause                                   | Recovery            |
+| ------------------------------ | --------------------------------------- | ------------------- |
+| File not found                 | Manifest missing or corrupt             | Re-commit original  |
+| Unrecoverable                  | Too many shards lost                    | Restore from backup |
+| Parse error                    | Malformed manifest.json                 | Manual intervention |
+| Segment hash mismatch          | Segment corrupt, parity also corrupt    | Restore from backup |
+| Not enough shards for recovery | Too many segments/parity corrupt        | Restore from backup |
+| Permission denied              | File permissions, disk full, SELinux/AA | Check permissions   |
 
 - Write recovered segments back to disk
 
