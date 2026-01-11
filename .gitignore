@@ -1,5 +1,8 @@
-archive_directory
-files_to_commit
-doc_archive
+archive_directory/
+files_to_commit/
+doc_archive/
 target/
 plan.md
+manifest.json
+comments_checklist.md
+logs/
