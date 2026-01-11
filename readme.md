@@ -507,7 +507,7 @@ Reed-Solomon: RS(n,k) codes provide mathematically guaranteed reconstruction fro
 
 Memory-mapped I/O: Files are memory-mapped for zero-copy reads. RAM usage remains constant regardless of file size. Kernel handles paging; application iterates through segments.
 
-BLAKE3: Used for all hashing (the `sha256` function name is historical). Faster than SHA-256 with better parallelization. Cryptographically secure.
+BLAKE3: Used for all hashing (the `blake3_hash_bytes` function name is historical). Faster than SHA-256 with better parallelization. Cryptographically secure.
 
 Cache: Mounted filesystems use moka's W-TinyLFU for segment caching. Frequency-based eviction prevents cache pollution from sequential scans. See [mount/README.md](src/mount/README.md) for detailed cache analysis.
 

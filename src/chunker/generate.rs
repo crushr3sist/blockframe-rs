@@ -30,17 +30,22 @@ impl Chunker {
         // create Reed-Solomon encoder
         let data_shards = 1;
         let parity_shards = 3;
-        let shard_bytes = segment_data.len();
+        // calculate the padded size, round up to the nearest 64
+        let padded_size = segment_data.len().div_ceil(64) * 64;
 
-        let mut encoder = ReedSolomonEncoder::new(data_shards, parity_shards, shard_bytes)?;
+        // initalise the encoder with the padded size
+        let mut encoder = ReedSolomonEncoder::new(data_shards, parity_shards, padded_size)?;
 
-        // Add the data shard
-        encoder.add_original_shard(segment_data)?;
-
-        // Encode and get result
+        if segment_data.len() < padded_size {
+            // create a temporary padded vector if strict alignment is needed
+            let mut padded_vec = segment_data.to_vec();
+            padded_vec.resize(padded_size, 0);
+            encoder.add_original_shard(&padded_vec)?;
+        } else {
+            // the faster path as most segments will be aligned already
+            encoder.add_original_shard(segment_data)?;
+        }
         let result = encoder.encode()?;
-
-        // Extract parity shards
         let parity: Vec<Vec<u8>> = result.recovery_iter().map(|shard| shard.to_vec()).collect();
 
         println!(

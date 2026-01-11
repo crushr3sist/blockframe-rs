@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     filestore::models::{BatchHealthReport, File, HealthReport, HealthStatus},
-    utils::sha256,
+    utils::blake3_hash_bytes,
 };
 use reed_solomon_simd::ReedSolomonDecoder;
 
@@ -149,7 +149,7 @@ impl FileStore {
 
         if data_exists {
             match fs::read(&data_path) {
-                Ok(data) => match sha256(&data) {
+                Ok(data) => match blake3_hash_bytes(&data) {
                     Ok(hash) => {
                         if hash == file_obj.file_data.hash {
                             data_valid = true;
@@ -251,7 +251,7 @@ impl FileStore {
             };
 
             // Verify Data Hash
-            if let Ok(actual) = sha256(&segment_data) {
+            if let Ok(actual) = blake3_hash_bytes(&segment_data) {
                 if actual != segment_info.data {
                     corrupt_segments.push(format!("segment_{}.dat", idx));
                 } else {
@@ -268,7 +268,7 @@ impl FileStore {
                     Ok(chunk) => {
                         // Verify Parity Hash
                         if let Some(expected) = segment_info.parity.get(parity_idx)
-                            && let Ok(actual) = sha256(&chunk)
+                            && let Ok(actual) = blake3_hash_bytes(&chunk)
                             && actual != *expected
                         {
                             missing_parity.push(format!(
@@ -504,7 +504,7 @@ impl FileStore {
         // Check if data exists and is valid
         if data_path.exists() {
             let data = fs::read(&data_path)?;
-            if sha256(&data)? == file_obj.file_data.hash {
+            if blake3_hash_bytes(&data)? == file_obj.file_data.hash {
                 return Ok(());
             }
         }

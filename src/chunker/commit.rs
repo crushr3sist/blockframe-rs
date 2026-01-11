@@ -9,25 +9,19 @@ use crate::merkle_tree::{
     MerkleTree,
     manifest::{BlockHashes, MerkleTreeStructure, SegmentHashes},
 };
-use crate::utils::sha256;
+use crate::utils::blake3_hash_bytes;
 use rayon::prelude::*;
-use reed_solomon_simd::ReedSolomonEncoder;
 use tracing::info;
-
-use std::io::Read;
 
 use crate::utils::determine_segment_size;
 
 use memmap2::Mmap;
-
-const MMAP_THRESHOLD: u64 = 10 * 1024 * 1024;
 
 impl Chunker {
     /// Tier 1 commit for files under 10MB. Uses RS(1,3) encoding where the whole file
     /// is treated as a single data shard with 3 parity shards. File is padded to 64-byte
     /// boundary (Reed-Solomon requirement), then 3 parity shards are generated.
     /// Creates data.dat + parity_0/1/2.dat, builds merkle tree from hashes, writes manifest.
-    /// Can recover from up to 3 lost shards.
     pub fn commit_tiny(
         &self,
         file_path: &Path,
@@ -41,20 +35,7 @@ impl Chunker {
         let file_data = fs::read(file_path)?;
         // our tiny file needs to be round up to a multiple of 64
         let padded_size = file_data.len().div_ceil(64) * 64;
-        info!("COMMIT | (tiny) padded size {} ", padded_size);
-
-        let mut padded_data = file_data.to_vec();
-        padded_data.resize(padded_size, 0);
-
-        let mut rs_encoder = ReedSolomonEncoder::new(1, 3, padded_size)?;
-        info!("COMMIT | (tiny) rs encoder initalised 1:3 ratio");
-        // Add all data shards
-        rs_encoder.add_original_shard(&padded_data)?;
-        let result = rs_encoder.encode()?;
-
-        // Extract parity shards
-        let parity: Vec<Vec<u8>> = result.recovery_iter().map(|shard| shard.to_vec()).collect();
-        info!("COMMIT | (tiny) rs encoder initalised 1:3 ratio");
+        let parity = self.generate_parity_segmented(&file_data)?;
 
         let file_name = file_path
             .file_name()
@@ -64,24 +45,24 @@ impl Chunker {
 
         info!("COMMIT | (tiny) confirming filename: {:?}", file_name);
 
-        let file_hash = sha256(&file_data)?;
+        let file_hash = blake3_hash_bytes(&file_data)?;
 
         info!("COMMIT | (tiny) hash: {:?} for: {:?}", file_hash, file_name);
 
-        let parirty0_hash = sha256(&parity[0])?;
+        let parity0_hash = blake3_hash_bytes(&parity[0])?;
         info!(
             "COMMIT | (tiny) parity hash 1: {:?} for: {:?}",
-            parirty0_hash, file_name
+            parity0_hash, file_name
         );
-        let parirty1_hash = sha256(&parity[1])?;
+        let parity1_hash = blake3_hash_bytes(&parity[1])?;
         info!(
             "COMMIT | (tiny) parity hash 2: {:?} for: {:?}",
-            parirty1_hash, file_name
+            parity1_hash, file_name
         );
-        let parirty2_hash = sha256(&parity[2])?;
+        let parity2_hash = blake3_hash_bytes(&parity[2])?;
         info!(
             "COMMIT | (tiny) parity hash 3: {:?} for: {:?}",
-            parirty2_hash, file_name
+            parity2_hash, file_name
         );
 
         let file_trun_hash = file_hash[0..10].to_string();
@@ -99,9 +80,9 @@ impl Chunker {
 
         let merkle_tree = MerkleTree::from_hashes(vec![
             file_hash.clone(),
-            parirty0_hash,
-            parirty1_hash,
-            parirty2_hash,
+            parity0_hash,
+            parity1_hash,
+            parity2_hash,
         ])?;
 
         info!("COMMIT | (tiny) writing manifest to {:?}", &file_dir);
@@ -146,7 +127,7 @@ impl Chunker {
         tier: u8,
     ) -> Result<ChunkedFile, Box<dyn std::error::Error>> {
         // we open a file, so we're not reading the file into memory
-        let mut file = File::open(file_path)?;
+        let file = File::open(file_path)?;
 
         // extracting the file size 10mb - 1gb
         let file_size = file.metadata()?.len() as usize;
@@ -155,10 +136,6 @@ impl Chunker {
             file_path, tier
         );
         info!("COMMIT | (segmented) file size: {} bytes", file_size);
-
-        // the threshold of mmap being enabled: 10mb
-        let use_mmap = file_size as u64 > MMAP_THRESHOLD;
-        info!("COMMIT | (segmented) using mmap: {}", use_mmap);
 
         // extract the filename from the path given
         let file_name = file_path
@@ -169,32 +146,15 @@ impl Chunker {
 
         info!("COMMIT | (segmented) confirming filename: {:?}", file_name);
 
-        // our mmap flag, its prefixed with _ as it might be false and empty
-        let _mmap: Option<Mmap>;
+        // we using default mmap otherwise we can end up with short reads in normal manual io reads at this size.
+        let mmap = unsafe { Mmap::map(&file)? };
 
         // our file data array which will be used as our mmap file reference
-        let file_data: &[u8];
-
-        // if our mmap threshold is triggered - file is bigger than 10mb
-        if use_mmap {
-            // memory mapping our file data
-            _mmap = Some(unsafe { Mmap::map(&file)? });
-
-            // our file data array is filled through the memory mapped file as a reference to the memory mapped file
-            file_data = _mmap
-                .as_ref()
-                .ok_or_else(|| std::io::Error::other("could not copy data into memmap"))?;
-        } else {
-            // if the file is smaller than 10mb then we're not memory mapping our file
-            _mmap = None;
-
-            // our file data array which is used as our memory mapped file reference is empty
-            // we're going to just read the file later on through our mut file File::open buffer
-            file_data = &[];
-        }
+        // our file data array is filled through the memory mapped file as a reference to the memory mapped file
+        let file_data: &[u8] = mmap.as_ref();
 
         // get an optimised segment size 1mb/8mb/32mb
-        let segment_size = determine_segment_size(file_size as u64)?;
+        let segment_size = determine_segment_size(file_size as u64)? as usize;
         info!("COMMIT | (segmented) segment size: {} bytes", segment_size);
 
         // this is the amount of segments we're going to generate
@@ -228,6 +188,7 @@ impl Chunker {
             "COMMIT | (segmented) archive_dir check {:?}",
             archive_dir_check
         );
+
         info!(
             "COMMIT | (segmented) writing segments to {:?}",
             segments_dir
@@ -237,10 +198,6 @@ impl Chunker {
         // through the numerical index loop
         let mut segment_hashes = Vec::new();
         let mut segments_map = HashMap::new();
-
-        // our segment read buffer
-        // its a statically sized array for segment size consistancy
-        let mut buffer = vec![0u8; segment_size];
 
         // iterating by the amount of segments we need to create
         // TODO: we know the amount of segments we need
@@ -252,30 +209,20 @@ impl Chunker {
             // our memory segment buffer
             // our `buffer` buffer is for reading the file with a slice
             // this is the storage buffer so that segment data is used in the code
-            let segment_data: &[u8] = if use_mmap {
+            let segment_data: &[u8] = {
                 // segment_index 0..num_segments:MAX(30)
                 // segment_size = 1mb/8mb/32mb
                 // start = 0..30 x 1_000_000
                 let start = segment_index * segment_size;
                 // end = (0..30 + 1) x 1_000_000
-                // so it looks like we're moving megabytes at a time,
-                // or kind of moving forward by a sort of pagenation of our file
+                // we're moving megabytes at a time,
+                // moving forward by a sort of pagenation of our file
                 let end = ((segment_index + 1) * segment_size).min(file_data.len());
                 // segment_data is our chunk of data or more, our segment
                 // which will be broken up into chunks, except //NOTE we wont be doing that
                 // NOTE we're writting the segment data as soon as we get, the parity data is also being written when our segment is provided
                 &file_data[start..end]
-            } else {
-                // if our file isnt using mmap, that means its just too small to use an overkill expanded and dicescted segment structure
-                let bytes_read = file.read(&mut buffer)?;
-                // segment data is taken straight from our file read buffer, and all of the file is filled into it.
-                &buffer[..bytes_read]
             };
-
-            // again this is where we're dividing our data into chunks
-            // here we need to just *write* our segment, instead of distributing it into chunks
-            // TODO: make a `self.write_segment`
-            // TODO: check what write-segment-chunks does and copy it for a
 
             // Hash file data as we process segments
             file_hasher.update(segment_data);
@@ -285,10 +232,10 @@ impl Chunker {
             self.write_segment(segment_index, segments_dir, segment_data)?;
             self.write_segment_parities(segment_index, parity_dir, &parity)?;
 
-            let data_hash = sha256(segment_data)?;
+            let data_hash = blake3_hash_bytes(segment_data)?;
             let mut parity_hashes = Vec::new();
             for p in &parity {
-                parity_hashes.push(sha256(p)?);
+                parity_hashes.push(blake3_hash_bytes(p)?);
             }
 
             segments_map.insert(
@@ -479,7 +426,7 @@ impl Chunker {
                                     &block_segments_dir,
                                     segment_data,
                                 )?;
-                                let hash = sha256(segment_data)?;
+                                let hash = blake3_hash_bytes(segment_data)?;
                                 Ok((segment_index, hash))
                             },
                         )
@@ -501,7 +448,7 @@ impl Chunker {
                     let mut parity_hashes = Vec::new();
 
                     for p in &parity {
-                        parity_hashes.push(sha256(p)?);
+                        parity_hashes.push(blake3_hash_bytes(p)?);
                     }
 
                     // For Tier 3, the block root is the Merkle root of its segments AND parity
@@ -528,7 +475,7 @@ impl Chunker {
         );
 
         // mmap already handed us the full file, so just hash the slice directly
-        let file_hash = sha256(file_data)?;
+        let file_hash = blake3_hash_bytes(file_data)?;
         let file_trun_hash = &file_hash[0..10].to_string();
         println!("File hash computed: {}", file_trun_hash);
         info!(
@@ -598,8 +545,8 @@ impl Chunker {
     ///
     /// | File Size Range          | Tier | Method              | RS Encoding        |
     /// |--------------------------|------|---------------------|--------------------|
-    /// | 0 - 10 MB                | 1    | `commit_tiny`       | RS(1,3) whole file |
-    /// | 10 MB - 1 GB             | 2    | `commit_segmented`  | RS(1,3) per segment|
+    /// | 0 - 25 MB                | 1    | `commit_tiny`       | RS(1,3) whole file |
+    /// | 25 MB - 1 GB             | 2    | `commit_segmented`  | RS(1,3) per segment|
     /// | 1 GB - 35 GB             | 3    | `commit_blocked`    | RS(30,3) per block |
     /// | > 35 GB (future)         | 4    | `commit_segmented`  | (planned expansion)|
     ///
@@ -633,8 +580,8 @@ impl Chunker {
     ///
     /// # Performance Characteristics
     ///
-    /// - **Tier 1** (< 10MB): Fast, entire file in memory
-    /// - **Tier 2** (10MB-1GB): Memory-mapped I/O, segment-by-segment processing
+    /// - **Tier 1** (<= 25MB): Fast, entire file in memory
+    /// - **Tier 2** (25MB-1GB): Memory-mapped I/O, segment-by-segment processing
     /// - **Tier 3** (1GB-35GB): Parallel block processing, optimized for large files
     ///
     /// # Notes
@@ -648,19 +595,24 @@ impl Chunker {
         let file = File::open(file_path)?;
         let file_size = file.metadata()?.len() as usize;
 
-        let tier: u8 = match file_size {
-            0..=10_000_000 => 1,
-            10_000_001..=1_000_000_000 => 2,
-            1_000_000_001..=35_000_000_000 => 3,
-            _ => 4,
+        const TIER_1_LIMIT: usize = 25_000_000; // 25MB
+        const TIER_2_LIMIT: usize = 1_000_000_000; // 1GB
+
+        let tier: u8 = if file_size == 0 {
+            return Err("empty file".into());
+        } else if file_size <= TIER_1_LIMIT {
+            1
+        } else if file_size <= TIER_2_LIMIT {
+            2
+        } else {
+            3
         };
 
         let which = match tier {
             1 => self.commit_tiny(file_path, file_size, tier)?,
             2 => self.commit_segmented(file_path, tier)?,
             3 => self.commit_blocked(file_path, tier)?,
-            4 => self.commit_blocked(file_path, tier)?,
-            _ => self.commit_segmented(file_path, tier)?,
+            _ => self.commit_blocked(file_path, tier)?,
         };
 
         Ok(which)

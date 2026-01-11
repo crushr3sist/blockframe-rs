@@ -167,7 +167,7 @@ impl BlockframeFSInner {
                 .ok_or("Missing leaf hash")?
         };
 
-        let actual_hash = crate::utils::sha256(&recovered)?;
+        let actual_hash = crate::utils::blake3_hash_bytes(&recovered)?;
         if actual_hash != *expected_hash {
             return Err("Recovery verification failed".into());
         }
@@ -228,7 +228,7 @@ impl BlockframeFSInner {
 
         // Verify integrity and recover if corrupted
         let verified_data = if let Some(expected_hash) = expected_hash_opt {
-            let actual_hash = crate::utils::sha256(&segment_data)?;
+            let actual_hash = crate::utils::blake3_hash_bytes(&segment_data)?;
 
             if actual_hash != *expected_hash {
                 use tracing::error;

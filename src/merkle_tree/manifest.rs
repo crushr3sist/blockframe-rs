@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs};
 
-use crate::{merkle_tree::MerkleTree, utils::sha256};
+use crate::{merkle_tree::MerkleTree, utils::blake3_hash_bytes};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SegmentHashes {
@@ -53,7 +53,7 @@ impl ManifestFile {
     }
 
     pub fn validate(&self) -> Result<bool, std::io::Error> {
-        // check root hash is 64 hex characters for sha256
+        // check root hash is 64 hex characters for blake3_hash_bytes
         if !Self::is_valid_hash(&self.merkle_tree.root)? {
             return Ok(false);
         }
@@ -115,7 +115,7 @@ impl ManifestFile {
     /// let chunks = vec![b"block".to_vec(), b"frame".to_vec()];
     /// let mut leaves = HashMap::new();
     /// for (index, chunk) in chunks.iter().enumerate() {
-    ///     leaves.insert(index as i32, blockframe::utils::sha256(chunk)?);
+    ///     leaves.insert(index as i32, blockframe::utils::blake3_hash_bytes(chunk)?);
     /// }
     /// let tree = blockframe::merkle_tree::MerkleTree::new(chunks.clone())?;
     /// let manifest = ManifestFile {
@@ -149,7 +149,7 @@ impl ManifestFile {
                 None => return Ok(false),
             };
             // our actual hash is calculated from the fed chunks
-            let actual_hash = sha256(chunk)?;
+            let actual_hash = blake3_hash_bytes(chunk)?;
             // the rest you can figure out
             if &actual_hash != expected_hash {
                 return Ok(false);

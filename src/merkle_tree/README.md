@@ -87,9 +87,9 @@ If you already hashed the segments during commit, dont hash them again, just bui
 
 ```rust
 let hashes = vec![
-    sha256(&segment_0)?,  // Already computed
-    sha256(&segment_1)?,
-    sha256(&segment_2)?,
+    blake3_hash_bytes(&segment_0)?,  // Already computed
+    blake3_hash_bytes(&segment_1)?,
+    blake3_hash_bytes(&segment_2)?,
 ];
 let tree = MerkleTree::from_hashes(hashes)?;
 ```
@@ -140,7 +140,7 @@ pub fn build_tree(nodes: &[Node]) -> Result<Node, std::io::Error> {
         };
 
         // Hash the concatenated hashes of left and right
-        let combined = sha256(&format!("{}{}", left.hash_val, right.hash_val))?;
+        let combined = blake3_hash_bytes(&format!("{}{}", left.hash_val, right.hash_val))?;
         new_level.push(Node::with_children(combined, Some(left), Some(right)));
     }
 
@@ -209,7 +209,7 @@ Confirms a chunk belongs to the tree without accessing other chunks. This is the
 
 ```rust
 let is_valid = MerkleTree::verify_proof(
-    &sha256(&segment_47)?,
+    &blake3_hash_bytes(&segment_47)?,
     &proof,
     &tree.root.hash_val,
 )?;
@@ -317,7 +317,7 @@ Confirms a chunk belongs to the tree without accessing other chunks.
 
 ```rust
 let is_valid = MerkleTree::verify_proof(
-    &sha256(&segment_47)?,
+    &blake3_hash_bytes(&segment_47)?,
     &proof,
     &tree.root.hash_val,
 )?;

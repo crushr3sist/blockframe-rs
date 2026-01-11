@@ -140,7 +140,7 @@ impl BlockframeFS {
                 .ok_or("Missing leaf hash")?
         };
 
-        let actual_hash = crate::utils::sha256(&recovered)?;
+        let actual_hash = crate::utils::blake3_hash_bytes(&recovered)?;
         if actual_hash != *expected_hash {
             return Err("Recovery verification failed".into());
         }
@@ -191,7 +191,7 @@ impl BlockframeFS {
             // Verify integrity for Tier 1
             if let Some(manifest) = self.manifests.get(filename) {
                 if let Some(expected_hash) = manifest.merkle_tree.leaves.get(&0) {
-                    let actual_hash = crate::utils::sha256(&data)?;
+                    let actual_hash = crate::utils::blake3_hash_bytes(&data)?;
                     if actual_hash != *expected_hash {
                         error!(
                             "Data corruption detected for {} (Tier 1). Attempting recovery...",
@@ -243,7 +243,7 @@ impl BlockframeFS {
                         .and_then(|b| b.segments.get(seg_idx))
                         .ok_or(format!("Hash not found for segment {}", segment_id))?;
 
-                    let actual_hash = crate::utils::sha256(&data)?;
+                    let actual_hash = crate::utils::blake3_hash_bytes(&data)?;
                     let verified_data = if actual_hash != *expected_hash {
                         error!(
                             "Corruption in {} segment {}. Recovering...",
@@ -275,7 +275,7 @@ impl BlockframeFS {
                         .map(|s| &s.data)
                         .ok_or(format!("Hash not found for segment {}", segment_id))?;
 
-                    let actual_hash = crate::utils::sha256(&data)?;
+                    let actual_hash = crate::utils::blake3_hash_bytes(&data)?;
                     let verified_data = if actual_hash != *expected_hash {
                         error!(
                             "Corruption in {} segment {}. Recovering...",

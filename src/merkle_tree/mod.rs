@@ -1,4 +1,4 @@
-use crate::{merkle_tree::node::Node, utils::sha256};
+use crate::{merkle_tree::node::Node, utils::blake3_hash_bytes};
 use serde_json::{self, Value, json};
 
 #[derive(Debug)]
@@ -24,7 +24,7 @@ impl MerkleTree {
         let mut leaves: Vec<Node> = chunks
             .iter()
             .map(|chunk| {
-                let hash = sha256(chunk)?;
+                let hash = blake3_hash_bytes(chunk)?;
                 Ok(Node::new(hash))
             })
             .collect::<Result<Vec<Node>, std::io::Error>>()?;
@@ -92,7 +92,7 @@ impl MerkleTree {
             let combined_hashes = format!("{}{}", left.hash_val, right.hash_val)
                 .as_bytes()
                 .to_vec();
-            let combined = sha256(&combined_hashes)?;
+            let combined = blake3_hash_bytes(&combined_hashes)?;
             let parent = Node::with_children(combined, Some(Box::new(left)), Some(Box::new(right)));
             new_level.push(parent);
         }
@@ -114,7 +114,7 @@ impl MerkleTree {
             .chunks
             .iter()
             .map(|chunk| {
-                let hash = sha256(chunk)?;
+                let hash = blake3_hash_bytes(chunk)?;
                 Ok(Node::new(hash))
             })
             .collect::<Result<Vec<Node>, std::io::Error>>()?;
@@ -138,7 +138,7 @@ impl MerkleTree {
                     .as_bytes()
                     .to_vec();
 
-                let parent_hash = sha256(&combined_hashes)?;
+                let parent_hash = blake3_hash_bytes(&combined_hashes)?;
 
                 let parent = Node::with_children(
                     parent_hash,
@@ -180,19 +180,19 @@ impl MerkleTree {
         proof: &[String],
         root_hash: String,
     ) -> Result<bool, std::io::Error> {
-        let mut current_hash = sha256(chunk)?;
+        let mut current_hash = blake3_hash_bytes(chunk)?;
         let mut chunk_index = chunk_index;
         for sibling_hash in proof {
             if chunk_index.is_multiple_of(2) {
                 let combined_hashes = format!("{}{}", current_hash, sibling_hash)
                     .as_bytes()
                     .to_vec();
-                current_hash = sha256(&combined_hashes)?;
+                current_hash = blake3_hash_bytes(&combined_hashes)?;
             } else {
                 let combined_hashes_else = format!("{}{}", sibling_hash, current_hash)
                     .as_bytes()
                     .to_vec();
-                current_hash = sha256(&combined_hashes_else)?;
+                current_hash = blake3_hash_bytes(&combined_hashes_else)?;
             }
 
             chunk_index /= 2;

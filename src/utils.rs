@@ -5,22 +5,21 @@ use sysinfo::System;
 /// Computes the BLAKE3 digest of the provided bytes and returns it as a
 /// hexadecimal string.
 ///
-/// Although the function is named `sha256`, it currently uses the
-/// [`blake3`](https://docs.rs/blake3) hasher under the hood to produce a
+/// it currently uses the [`blake3`](https://docs.rs/blake3) hasher under the hood to produce a
 /// cryptographically secure hash.
 ///
 /// # Examples
 ///
 /// ```
-/// use blockframe::utils::sha256;
+/// use blockframe::utils::blake3_hash_bytes;
 ///
 /// # fn main() -> Result<(), std::io::Error> {
-/// let digest = sha256(b"blockframe")?;
+/// let digest = blake3_hash_bytes(b"blockframe")?;
 /// assert_eq!(digest, "c41e3ccb398783c24211ecea54ac84c2029d012165392c9deabbef3a597b8fb7");
 /// # Ok(())
 /// # }
 /// ```
-pub fn sha256(data: &[u8]) -> Result<String, std::io::Error> {
+pub fn blake3_hash_bytes(data: &[u8]) -> Result<String, std::io::Error> {
     let mut hasher = Hasher::new();
     hasher.update(data);
     let result = hasher.finalize();
@@ -92,7 +91,7 @@ pub fn detect_available_memory() -> Result<u64, std::io::Error> {
 /// # Examples
 ///
 /// ```
-/// use blockframe::utils::{hash_file_streaming, sha256};
+/// use blockframe::utils::{hash_file_streaming, blake3_hash_bytes};
 /// use std::fs::File;
 /// use std::io::Write;
 ///
@@ -105,7 +104,7 @@ pub fn detect_available_memory() -> Result<u64, std::io::Error> {
 /// writeln!(file, "hash me")?;
 ///
 /// let digest = hash_file_streaming(&file_path)?;
-/// let direct_digest = sha256(&std::fs::read(&file_path)?)?;
+/// let direct_digest = blake3_hash_bytes(&std::fs::read(&file_path)?)?;
 /// assert_eq!(digest, direct_digest);
 ///
 /// std::fs::remove_file(file_path)?;
