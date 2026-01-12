@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tracing::error;
+use tracing::{error, info};
 
 use crate::config::{Config, parse_size};
 use crate::merkle_tree::manifest::ManifestFile;
@@ -35,6 +35,11 @@ pub struct BlockframeFS {
 }
 
 impl BlockframeFS {
+    /// New, like setting up a Unix filesystem mount. "FUSE mount," the kernel says.
+    /// I'd get uid/gid, load config, set up cache. "Unix ready!"
+    /// Creating Unix FS is like that – permissions and source setup. "Fused!"
+    /// There was this mount that failed permissions, learned about users. Security.
+    /// Life's about permissions, from users to filesystems.
     pub fn new(source: Box<dyn SegmentSource>) -> Result<Self, Box<dyn std::error::Error>> {
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
@@ -95,7 +100,7 @@ impl BlockframeFS {
         segment_id: usize,
         block_id: Option<usize>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        println!("Recovering segment {} for {}", segment_id, filename);
+        info!("Recovering segment {} for {}", segment_id, filename);
 
         // Fetch parity shards
         let parity_shards: Vec<Vec<u8>> = (0..3)
@@ -312,7 +317,7 @@ impl Filesystem for BlockframeFS {
         _req: &Request<'_>,
         _config: &mut fuser::KernelConfig,
     ) -> Result<(), libc::c_int> {
-        println!("Blockframe filesystem mounted");
+        info!("Blockframe filesystem mounted");
 
         Ok(())
     }

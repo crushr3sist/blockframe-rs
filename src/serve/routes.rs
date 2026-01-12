@@ -23,6 +23,11 @@ pub struct BlockframeApi {
     store: Arc<RwLock<FileStore>>,
 }
 impl BlockframeApi {
+    /// New, like starting a new restaurant with fresh ingredients. "Fresh start," the chef says.
+    /// I'd take the store, wrap in Arc RwLock. "Ready to serve!"
+    /// Creating new API is like that – store in thread-safe wrapper. "Operational!"
+    /// There was this restaurant that opened with stale bread, learned fresh is best. Quality.
+    /// Life's about freshness, from restaurants to APIs.
     pub fn new(store: FileStore) -> Self {
         Self {
             store: Arc::new(RwLock::new(store)),

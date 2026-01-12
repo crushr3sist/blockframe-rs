@@ -7,6 +7,7 @@ use blockframe::{
         source::{LocalSource, RemoteSource, SegmentSource},
     },
     serve::run_server,
+    utils::{get_archive_stats, export_archive_metadata, benchmark_reconstruction},
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -70,7 +71,7 @@ enum Commands {
     },
 
     /// Check the health of all files and attempt repairs.
-    ///
+    /// 
     /// Scans all file manifests and chunks. If chunks are missing but enough
     /// parity chunks exist, the file will be repaired.
     Health {
@@ -78,10 +79,52 @@ enum Commands {
         #[arg(short, long)]
         archive: Option<PathBuf>,
     },
+
+    /// Display statistics about the archive.
+    ///
+    /// Shows total files, size, and other metrics.
+    Stats {
+        /// Directory where chunks are stored.
+        #[arg(short, long)]
+        archive: Option<PathBuf>,
+    },
+
+    /// Verify integrity of all files without repairing.
+    ///
+    /// Checks hashes and reports any corruption.
+    Verify {
+        /// Directory where chunks are stored.
+        #[arg(short, long)]
+        archive: Option<PathBuf>,
+    },
+
+    /// Export archive metadata to a file.
+    ///
+    /// Outputs archive information in JSON format.
+    Export {
+        /// Directory where chunks are stored.
+        #[arg(short, long)]
+        archive: Option<PathBuf>,
+        /// Output file path.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
+    /// Benchmark reconstruction performance.
+    ///
+    /// Measures time to reconstruct sample files.
+    Benchmark {
+        /// Directory where chunks are stored.
+        #[arg(short, long)]
+        archive: Option<PathBuf>,
+        /// Number of samples to test.
+        #[arg(short, long, default_value = "10")]
+        samples: usize,
+    },
 }
 
 /// Logging initiser for listing to the logger events and rolling logging
-pub fn init_logging() {
+pub fn init_logging(config: &Config) {
     // file_appender a RollingFileAppender object
     // file_appender is used to write to the log file, however the log file will roll over to another log file
     // when the given rotation option. Which is configured to be daily.
@@ -97,35 +140,52 @@ pub fn init_logging() {
 
     // subscriber is responsible for routing where tracing events are processed
     // it is the global sink that collects tracing events, filters them, formats them and writes them to stdout and a log file
-    let subscriber = Registry::default() // the core event router. It keeps track of spans, thier relationships and forwards events to layers
-        .with(
-            // EnvFilter is used to read a log filter string from the environment
-            // if RUST_LOG isnt set in the env then those rules will be used
-            // otherwise the fallback flags will be the default
-            // info log emits such as warn, info and error
-            // debug is enabled if its flagged in the crate
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info, blockframe=debug")),
-        )
-        .with(
-            // fmt::layer() is used to format the log
-            fmt::layer()
-                // sends the formatted log lines to stdout, the non-blocking stdout_writer
-                .with_writer(stdout_writer)
-                // the event's target is included in the output, e.g. the crate or module path like blockframe::mount::source
-                .with_target(true)
-                // includes the thread ID that emitted the log
-                // useful for the API calls as they are asynchronous
-                .with_thread_ids(true),
-        )
-        .with(
-            // the last format layer
-            fmt::layer()
-                // this time we use file_writter to write the logs to the log file instead of stdout
-                .with_writer(file_writer)
-                // ansi disabled color escape codes to keep logs simple plain text, no color pollution
-                .with_ansi(false),
-        );
+    let registry = Registry::default(); // the core event router. It keeps track of spans, thier relationships and forwards events to layers
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            let mut filter = EnvFilter::new(&config.logging.level);
+            for f in &config.logging.filters {
+                filter = filter.add_directive(f.parse().unwrap_or_default());
+            }
+            filter
+        });
+    let subscriber_with_filter = registry.with(env_filter);
+    let stdout_layer = fmt::layer()
+        .with_writer(stdout_writer)
+        .with_target(true)
+        .with_thread_ids(true);
+    let subscriber_with_stdout = subscriber_with_filter.with(stdout_layer);
+    let file_layer = fmt::layer()
+        .with_writer(file_writer)
+        .with_ansi(false);
+    let subscriber = subscriber_with_stdout.with(file_layer);
+
+    // Add hook layers based on config
+    let mut subscriber = subscriber;
+    for hook in &config.logging.hooks {
+        if hook == "json" {
+            let json_layer = fmt::layer()
+                .json()
+                .with_writer(stdout_writer.clone());
+            subscriber = subscriber.with(json_layer);
+        } else if hook == "extra_file" {
+            let extra_appender = RollingFileAppender::new(Rotation::DAILY, "./logs", "blockframe_extra.log");
+            let (extra_writer, _extra_guard) = non_blocking(extra_appender);
+            let extra_layer = fmt::layer()
+                .with_writer(extra_writer)
+                .with_ansi(false);
+            subscriber = subscriber.with(extra_layer);
+            Box::leak(Box::leak(Box::new(_extra_guard)));
+        }
+    }
+
+    // If metrics enabled, add a layer for performance logging
+    if config.logging.metrics {
+        let metrics_layer = tracing_subscriber::fmt::layer()
+            .with_timer(tracing_subscriber::fmt::time::uptime())
+            .with_target(true);
+        subscriber = subscriber.with(metrics_layer);
+    }
     // tracing::subscriber installs the subscriber globally.
     // Ever tracing macro anywhere on the program sends events through the subscriber
     // called twice will cause a fail
@@ -147,12 +207,14 @@ pub fn init_logging() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    init_logging();
 
     // Load configuration file
-    let config = Config::load().map_err(|e| {
+    let config_result = Config::load();
+    let config = config_result.map_err(|e| {
         format!("Failed to load config.toml: {}. Make sure config.toml exists in the current directory.", e)
     })?;
+
+    init_logging(&config);
 
     // Warn if both remote and archive are configured (could be confusing)
     if !config.mount.default_remote.is_empty() {
@@ -212,6 +274,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 info!("REPAIR | all files healthy");
             }
+            Ok(())
+        }
+
+        Commands::Stats { archive } => {
+            let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
+            let stats = get_archive_stats(&archive_path)?;
+            info!("STATS | Archive statistics");
+            info!("Total files: {}", stats.total_files);
+            info!("Total size: {} bytes", stats.total_size);
+            info!("Manifests: {}", stats.manifest_count);
+            info!("Chunks: {}", stats.chunk_count);
+            Ok(())
+        }
+
+        Commands::Verify { archive } => {
+            let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
+            let store = FileStore::new(&archive_path)?;
+            let batch_report = store.batch_health_check()?;
+            info!("VERIFY | Integrity check results");
+            info!(
+                total_files = batch_report.total_files,
+                healthy = batch_report.healthy,
+                degraded = batch_report.degraded,
+                recoverable = batch_report.recoverable,
+                unrecoverable = batch_report.unrecoverable
+            );
+            if batch_report.unrecoverable > 0 {
+                warn!("VERIFY | Found unrecoverable corruption");
+            }
+            Ok(())
+        }
+
+        Commands::Export { archive, output } => {
+            let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
+            export_archive_metadata(&archive_path, &output)?;
+            info!("EXPORT | Metadata exported to {:?}", output);
+            Ok(())
+        }
+
+        Commands::Benchmark { archive, samples } => {
+            let archive_path = archive.unwrap_or_else(|| config.archive.directory.clone());
+            let bench = benchmark_reconstruction(&archive_path, samples)?;
+            info!("BENCHMARK | Reconstruction performance");
+            info!("Sample size: {}", bench.sample_size);
+            info!("Total time: {} ms", bench.total_time_ms);
+            info!("Average time per file: {} ms", bench.avg_time_ms);
             Ok(())
         }
 

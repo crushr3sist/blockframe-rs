@@ -17,12 +17,22 @@ pub struct CacheStats {
 }
 
 impl SegmentCache {
+    /// New, like setting up a memory cache for speed. "Cache it," the programmer says.
+    /// I'd estimate bytes from capacity. "Cached!"
+    /// Creating cache is like that – capacity to bytes conversion. "Fast access!"
+    /// There was this slow system, cache made it zip. Performance.
+    /// Life's about speed, from memory to cache.
     pub fn new(capacity: usize) -> Self {
         // Convert item count to rough byte estimate (assuming 32MB segments)
         let max_bytes = (capacity as u64) * 32 * 1024 * 1024;
         Self::new_with_limits(max_bytes)
     }
 
+    /// New with limits, like setting cache size limits precisely. "Exact bytes," the optimizer says.
+    /// I'd build moka cache with weigher and TTL. "Limited!"
+    /// Creating cache with limits is like that – size-based eviction. "Controlled!"
+    /// There was this cache that grew too big, limits kept it in check. Management.
+    /// Life's about limits, from resources to cache.
     pub fn new_with_limits(max_bytes: u64) -> Self {
         // W-TinyLFU cache that evicts based on SIZE (bytes) and FREQUENCY.
         // The weigher tells moka how "heavy" each item is.
@@ -39,6 +49,11 @@ impl SegmentCache {
         Self { cache, max_bytes }
     }
 
+    /// Get, like retrieving from memory palace. "Recall it," the mnemonist says.
+    /// I'd get the Arc clone, no copy. "Retrieved!"
+    /// Getting from cache is like that – zero-copy access. "Efficient!"
+    /// There was this memory trick that helped me remember, like cache. Association.
+    /// Life's about recall, from memory to cache.
     /// Zero-copy getter. Returns Arc clone (cheap), no data copy.
     pub fn get(&self, key: &str) -> Option<Arc<Vec<u8>>> {
         // Moka's get() automatically promotes frequently accessed items.
@@ -46,6 +61,11 @@ impl SegmentCache {
         self.cache.get(key)
     }
 
+    /// Put, like storing in a mental warehouse. "Store it," the organizer says.
+    /// I'd insert key and value. "Stored!"
+    /// Putting in cache is like that – moka handles eviction. "Managed!"
+    /// There was this warehouse that got cluttered, learned organization. Structure.
+    /// Life's about storage, from warehouses to cache.
     pub fn put(&self, key: String, value: Arc<Vec<u8>>) {
         // No manual eviction loop needed. Moka uses W-TinyLFU to decide
         // what stays based on access frequency and recency.
@@ -53,6 +73,11 @@ impl SegmentCache {
         self.cache.insert(key, value);
     }
 
+    /// Stats, like checking inventory levels. "How much stock?" the manager asks.
+    /// I'd count items and bytes. "Statistics!"
+    /// Getting cache stats is like that – entry count and size. "Metrics!"
+    /// There was this inventory that was off, stats helped fix it. Accuracy.
+    /// Life's about counting, from inventory to cache.
     pub fn stats(&self) -> CacheStats {
         CacheStats {
             items: self.cache.entry_count(),
@@ -61,6 +86,11 @@ impl SegmentCache {
         }
     }
 
+    /// Get or fetch, like checking pantry before shopping. "Do we have it?" I'd ask.
+    /// If not, fetch it and store. "Supplied!"
+    /// Get or fetch is like that – check cache, else fetch and insert. "Efficient!"
+    /// There was this pantry raid that saved a trip, like cache hit. Preparedness.
+    /// Life's about availability, from pantry to cache.
     pub fn get_or_fetch<F>(
         &self,
         filename: &str,

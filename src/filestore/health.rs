@@ -9,10 +9,16 @@ use crate::{
     utils::blake3_hash_bytes,
 };
 use reed_solomon_simd::ReedSolomonDecoder;
+use tracing::info;
 
 use super::FileStore;
 
 impl FileStore {
+    /// Batch health check, like the annual physical at the doctor's office. "How are you feeling?" the doctor asks.
+    /// I'd get checked head to toe, blood tests, everything. "All good!"
+    /// Batch health check is like that – get all files, check each one, tally results. "Archive status!"
+    /// There was this checkup where they found something early. Prevention is key.
+    /// Life's about checkups, from bodies to archives.
     /// Performs health checks on all files in the archive directory.
     ///
     /// Scans the entire archive, checks each file's health status, and aggregates
@@ -73,6 +79,11 @@ impl FileStore {
         })
     }
 
+    /// Health check, like checking the oil in my car. "How's the engine?" I'd ask the mechanic.
+    /// He'd dip the stick, check the level. "Looks good!"
+    /// Health check is like that – route by tier, check integrity. "File status!"
+    /// There was this time my car needed oil, caught it early. Maintenance matters.
+    /// Life's about checks, from cars to files.
     /// Checks the health of a single file by verifying data integrity and parity availability.
     ///
     /// Routes to the appropriate tier-specific health check based on the file's tier.
@@ -437,6 +448,11 @@ impl FileStore {
         })
     }
 
+    /// Repair, like fixing a broken toy with glue and tape. "Can we save it?" I'd ask.
+    /// I'd gather the pieces, apply fixes. "Good as new!"
+    /// Repair is like that – check health, route by tier, reconstruct. "File saved!"
+    /// There was this favorite toy that broke, repaired it myself. Pride in fixing.
+    /// Life's about repair, from toys to files.
     /// Automatically repairs a file by recovering corrupted or missing data.
     ///
     /// First performs a health check to determine if repair is possible.
@@ -486,6 +502,11 @@ impl FileStore {
         }
     }
 
+    /// Repair tiny, like fixing a small scratch on my bike. "Just a little ding," I'd say.
+    /// I'd get the touch-up paint, apply carefully. "Perfect!"
+    /// Repair tiny is like that – reconstruct data.dat from parity. "Small fix!"
+    /// There was this scratch that bothered me, fixed it up nice. Attention to detail.
+    /// Life's about small repairs, from bikes to files.
     /// Repairs Tier 1 (tiny) files by reconstructing data.dat from parity files.
     ///
     /// Uses Reed-Solomon decoder with RS(1,3) configuration to recover the original
@@ -523,17 +544,21 @@ impl FileStore {
 
         // Decode to recover original data
         let result = decoder.decode()?;
-        let recovered = result
-            .restored_original(0)
-            .ok_or("Failed to restore original data")?;
+        let restored = result.restored_original(0);
+        let recovered = restored.ok_or("Failed to restore original data")?;
 
         // Write recovered data (may have padding, but that's okay)
         fs::write(&data_path, recovered)?;
-        println!("Recovered data.dat using Reed-Solomon decoder");
+        info!("Recovered data.dat using Reed-Solomon decoder");
 
         Ok(())
     }
 
+    /// Repair segment, like fixing a broken link in a chain. "One weak link," the saying goes.
+    /// I'd find the bad link, replace or fix it. "Chain strong again!"
+    /// Repair segment is like that – scan segments, reconstruct missing ones. "Integrity restored!"
+    /// There was this chain that kept breaking, learned to maintain it. Prevention.
+    /// Life's about links, from chains to segments.
     /// Repairs Tier 2 (segmented) files by reconstructing missing or corrupt segments.
     ///
     /// Scans all segments, identifies those that are missing or fail hash verification,
@@ -628,6 +653,11 @@ impl FileStore {
         Ok(())
     }
 
+    /// Repair blocked, like rebuilding a wall with missing bricks. "Foundation needs work," the mason says.
+    /// I'd find the bad bricks, replace them carefully. "Wall solid!"
+    /// Repair blocked is like that – per block, reconstruct missing segments. "Structure intact!"
+    /// There was this wall that crumbled, rebuilt it stronger. Engineering lessons.
+    /// Life's about foundations, from walls to blocks.
     /// Repairs corrupt or missing segments in Tier 3 (blocked) archives.
     ///
     /// Tier 3 uses RS(30,3): 30 data segments + 3 parity shards per block.
@@ -747,16 +777,17 @@ impl FileStore {
 
             // Write recovered segments back to disk
             for missing_idx in missing_indices {
-                let recovered = result
-                    .restored_original(missing_idx)
-                    .ok_or_else(|| format!("Failed to restore segment {}", missing_idx))?;
+                let restored = result.restored_original(missing_idx);
+                let recovered = restored.ok_or_else(|| format!("Failed to restore segment {}", missing_idx))?;
 
                 let seg_path = segments_dir.join(format!("segment_{}.dat", missing_idx));
                 fs::write(&seg_path, recovered)?;
-                println!(
+                let file_name_opt = block_dir.file_name();
+                let file_name_default = file_name_opt.unwrap_or_default();
+                info!(
                     "Recovered segment {} in block {:?}",
                     missing_idx,
-                    block_dir.file_name().unwrap_or_default()
+                    file_name_default
                 );
             }
         }

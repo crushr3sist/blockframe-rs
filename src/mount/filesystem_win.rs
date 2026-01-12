@@ -48,6 +48,11 @@ struct BlockframeFSInner {
 }
 
 impl BlockframeFS {
+    /// New, like building a Windows filesystem from scratch. "Mount point," the OS says.
+    /// I'd take the source, load config, set up cache. "Filesystem ready!"
+    /// Creating BlockframeFS is like that – source and cache setup. "Mounted!"
+    /// There was this filesystem that crashed, learned about backups. Reliability.
+    /// Life's about mounting, from drives to filesystems.
     pub fn new(source: Box<dyn SegmentSource>) -> Result<Self> {
         let (_max_segments, max_bytes) = match Config::load() {
             Ok(cfg) => (

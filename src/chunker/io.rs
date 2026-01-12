@@ -7,6 +7,7 @@ use std::{
     fs::{self},
     path::Path,
 };
+use tracing::debug;
 
 use serde_json::json;
 
@@ -50,7 +51,7 @@ impl Chunker {
             let file = File::create(&parity_path)?;
             let mut writer = BufWriter::new(file);
             writer.write_all(chunk)?;
-            println!("wrote parity chunk {} ({} bytes)", index, chunk.len());
+            debug!("wrote parity chunk {} ({} bytes)", index, chunk.len());
         }
         Ok(())
     }
@@ -73,7 +74,7 @@ impl Chunker {
                 let mut writer = BufWriter::with_capacity(capacity, file);
                 writer.write_all(chunk)?;
                 writer.flush()?;
-                println!("wrote parity chunk {} ({} bytes)", index, chunk.len());
+                debug!("wrote parity chunk {} ({} bytes)", index, chunk.len());
                 Ok(())
             },
         )?;
@@ -97,7 +98,7 @@ impl Chunker {
                 let mut writer = BufWriter::with_capacity(capacity, file);
                 writer.write_all(chunk)?;
                 writer.flush()?;
-                println!("wrote parity chunk {} ({} bytes)", index, chunk.len());
+                debug!("wrote parity chunk {} ({} bytes)", index, chunk.len());
                 Ok(())
             },
         )?;

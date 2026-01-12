@@ -1,7 +1,13 @@
 use super::Chunker;
 
 use reed_solomon_simd::ReedSolomonEncoder;
+use tracing::debug;
 impl Chunker {
+    /// Get chunks, like dividing a cake into equal slices for sharing. "Fair portions," mom would say.
+    /// I'd measure carefully, cut evenly. "Everyone gets some!"
+    /// Getting chunks is like that – divide data into 6 parts. "Distributed!"
+    /// There was this cake that was uneven, learned to measure properly. Precision matters.
+    /// Life's about division, from cakes to data.
     pub fn get_chunks(&self, file_data: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         let total_len = file_data.len();
         let chunk_size = total_len.div_ceil(6); // Round up to ensure we don't create more than 6 chunks
@@ -23,6 +29,11 @@ impl Chunker {
         Ok(chunks)
     }
 
+    /// Generate parity segmented, like adding extra locks to a safe. "Triple protection," the bank says.
+    /// I'd encode with Reed-Solomon, create parity shards. "Secure!"
+    /// Generating parity segmented is like that – RS encoder, pad to 64, encode. "Redundancy added!"
+    /// There was this safe that needed better locks, upgraded it. Security first.
+    /// Life's about protection, from safes to data.
     pub fn generate_parity_segmented(
         &self,
         segment_data: &[u8],
@@ -46,9 +57,11 @@ impl Chunker {
             encoder.add_original_shard(segment_data)?;
         }
         let result = encoder.encode()?;
-        let parity: Vec<Vec<u8>> = result.recovery_iter().map(|shard| shard.to_vec()).collect();
+        let recovery_iter = result.recovery_iter();
+        let mapped = recovery_iter.map(|shard| shard.to_vec());
+        let parity: Vec<Vec<u8>> = mapped.collect();
 
-        println!(
+        debug!(
             "Generated {} parity chunks from {} data chunks",
             parity_shards, data_shards
         );
@@ -56,6 +69,11 @@ impl Chunker {
         Ok(parity)
     }
 
+    /// Generate parity, like creating backup copies of important documents. "Never lose this," I'd think.
+    /// I'd encode segments with RS, create parity shards. "Protected!"
+    /// Generating parity is like that – find max size, pad, encode. "Safety net!"
+    /// There was this document I almost lost, started backing up everything. Relief.
+    /// Life's about backups, from documents to segments.
     pub fn generate_parity(
         &self,
         segments: &[&[u8]],
@@ -92,10 +110,11 @@ impl Chunker {
         let result = encoder.encode()?;
 
         // Extract parity shards
-        let parity_chunks: Vec<Vec<u8>> =
-            result.recovery_iter().map(|shard| shard.to_vec()).collect();
+        let recovery_iter = result.recovery_iter();
+        let mapped = recovery_iter.map(|shard| shard.to_vec());
+        let parity_chunks: Vec<Vec<u8>> = mapped.collect();
 
-        println!(
+        debug!(
             "Generated {} parity chunks from {} data chunks",
             parity_shards, data_shards
         );

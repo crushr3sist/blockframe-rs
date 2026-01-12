@@ -55,6 +55,11 @@ pub struct LocalSource {
 }
 
 impl LocalSource {
+    /// New, like setting up a local library branch. "Local access," the librarian says.
+    /// I'd create the FileStore from path. "Branch open!"
+    /// Creating local source is like that – store from archive path. "Available!"
+    /// There was this library that was far away, local one was convenient. Accessibility.
+    /// Life's about locality, from libraries to sources.
     pub fn new(archive_path: PathBuf) -> Result<Self, std::io::Error> {
         let store = FileStore::new(&archive_path)?;
         Ok(Self { store })
@@ -188,6 +193,11 @@ pub struct RemoteSource {
 }
 
 impl RemoteSource {
+    /// New, like connecting to a remote library network. "Online access," the system says.
+    /// I'd set the base URL, create ureq agent. "Connected!"
+    /// Creating remote source is like that – URL and agent for requests. "Networked!"
+    /// There was this remote database I accessed, learned about APIs. Connectivity.
+    /// Life's about connection, from networks to sources.
     pub fn new(base_url: String) -> Self {
         let agent = ureq::Agent::new_with_defaults();
 

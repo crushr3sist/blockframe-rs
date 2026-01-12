@@ -8,6 +8,7 @@ use crate::chunker::ChunkedFile;
 use crate::merkle_tree::{
     MerkleTree,
     manifest::{BlockHashes, MerkleTreeStructure, SegmentHashes},
+use tracing::info;
 };
 use crate::utils::blake3_hash_bytes;
 use rayon::prelude::*;
@@ -18,6 +19,11 @@ use crate::utils::determine_segment_size;
 use memmap2::Mmap;
 
 impl Chunker {
+    /// Commit tiny, like storing a small treasure in a safe deposit box. "Keep it secure," the banker says.
+    /// I'd read the file, pad to 64, generate parity, write files. "Protected!"
+    /// Committing tiny is like that – RS(1,3), create data and parity. "Safe deposit!"
+    /// There was this small item I kept losing, put it in a safe place. Peace of mind.
+    /// Life's about security, from treasures to files.
     /// Tier 1 commit for files under 10MB. Uses RS(1,3) encoding where the whole file
     /// is treated as a single data shard with 3 parity shards. File is padded to 64-byte
     /// boundary (Reed-Solomon requirement), then 3 parity shards are generated.
@@ -117,6 +123,11 @@ impl Chunker {
         })
     }
 
+    /// Commit segmented, like organizing a library into sections. "Fiction here, non-fiction there," the librarian says.
+    /// I'd divide the file into segments, encode each with RS(1,3). "Organized!"
+    /// Committing segmented is like that – mmap for large files, process segments. "Structured!"
+    /// There was this messy bookshelf, organized it by genre. Much better.
+    /// Life's about organization, from libraries to files.
     /// Tier 2 commit for 10MB-1GB files. Divides file into segments (1/8/32MB depending on size),
     /// each segment gets RS(1,3) encoding for independent recovery. Uses mmap for files >10MB.
     /// Builds merkle tree from segment hashes, computes BLAKE3 hash during processing.
@@ -170,17 +181,21 @@ impl Chunker {
         );
         info!("COMMIT | (segmented) rs encoder will use 1:3 ratio per segment");
 
-        println!("Computing file hash while processing segments...");
+        info!("Computing file hash while processing segments...");
         let mut file_hasher = blake3::Hasher::new();
 
         let file_hash_placeholder = "computing";
         let file_dir = self.get_dir(&file_name, &file_hash_placeholder.to_string())?;
-        let parity_dir = &file_dir.join("parity");
-        let segments_dir = &file_dir.join("segments");
+        let parity_dir_joined = file_dir.join("parity");
+        let parity_dir = &parity_dir_joined;
+        let segments_dir_joined = file_dir.join("segments");
+        let segments_dir = &segments_dir_joined;
 
         self.create_dir(&file_dir)?;
-        self.create_dir(&file_dir.join("parity"))?;
-        self.create_dir(&file_dir.join("segments"))?;
+        let parity_created = file_dir.join("parity");
+        self.create_dir(&parity_created)?;
+        let segments_created = file_dir.join("segments");
+        self.create_dir(&segments_created)?;
 
         // a check and create function for our archive directory
         let archive_dir_check = self.check_for_archive_dir()?;
@@ -308,6 +323,11 @@ impl Chunker {
         })
     }
 
+    /// Commit blocked, like building a fortress with multiple walls. "Layered defense," the general says.
+    /// I'd divide into blocks, apply RS(30,3) per block. "Fortified!"
+    /// Committing blocked is like that – parallel processing, two-level merkle. "Impenetrable!"
+    /// There was this fort I built as a kid, multiple layers. Imagination.
+    /// Life's about defense, from forts to files.
     /// Tier 3 commit for 1GB-35GB files. Divides into blocks of 30 segments each, applies RS(30,3)
     /// per block. Can lose up to 3 segments per block and still recover. Uses parallel block
     /// processing (Rayon), always mmaps, builds two-level merkle tree (file → blocks → segments).
@@ -535,6 +555,11 @@ impl Chunker {
         })
     }
 
+    /// Commit, like mailing a letter with proper postage. "Choose the right stamp," the postmaster says.
+    /// I'd check the size, select the tier, route to the right method. "Delivered!"
+    /// Committing is like that – auto-select tier, commit appropriately. "Archived!"
+    /// There was this letter I under-stamped, it came back. Learned the rules.
+    /// Life's about routing, from mail to files.
     /// Main entry point for committing any file to the archive.
     ///
     /// This function automatically selects the appropriate tier based on file size

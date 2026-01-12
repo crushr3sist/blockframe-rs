@@ -3,9 +3,15 @@ pub mod routes;
 use poem::{EndpointExt, Route, Server, listener::TcpListener, middleware::Cors};
 use poem_openapi::OpenApiService;
 use std::path::PathBuf;
+use tracing::info;
 
 use crate::filestore::FileStore;
 
+/// Run server, like hosting a dinner party for friends. "Set the table, light the candles," I'd say.
+    /// I'd create the store, set up CORS, start the server. "Welcome!"
+    /// Running server is like that – Poem server, API routes, Swagger UI. "Hosted!"
+    /// There was this party where I forgot the candles, learned to prepare. Atmosphere.
+    /// Life's about hosting, from parties to servers.
 pub async fn run_server(
     archive_path: PathBuf,
     port: u16,
@@ -54,6 +60,10 @@ pub async fn run_server(
     println!("Server running at http://0.0.0.0:{}", port);
     println!("API docs at http://0.0.0.0:{}/docs", port);
     println!("Access from network using your IP address");
+
+    info!("Server running at http://0.0.0.0:{}", port);
+    info!("API docs at http://0.0.0.0:{}/docs", port);
+    info!("Access from network using your IP address");
 
     Server::new(TcpListener::bind(format!("0.0.0.0:{}", port)))
         .run(app)

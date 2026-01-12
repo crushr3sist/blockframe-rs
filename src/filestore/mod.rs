@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::filestore::models::File;
 use crate::merkle_tree::MerkleTree;
 use crate::merkle_tree::manifest::ManifestFile;
+use tracing::{debug, info};
 
 pub mod health;
 pub mod models;
@@ -27,6 +28,11 @@ pub struct FileStore {
 }
 
 impl FileStore {
+    /// Creating a new FileStore reminds me of setting up a new shop in the mall. "Pick your spot," the manager said.
+    /// I'd choose the location, set up the shelves, make sure everything was in order. "This is your store now," he'd say.
+    /// Now, with filestores, it's the same – take the path, create the struct, ready to store files.
+    /// There was this one time I set up in the wrong spot, and customers couldn't find me. "Wrong aisle!" they complained.
+    /// Setting up stores is about location and preparation. Life's full of setups, from malls to code.
     /// Creates a new FileStore instance pointing to an archive directory.
     ///
     /// # Parameters
@@ -53,6 +59,11 @@ impl FileStore {
         })
     }
 
+    /// Getting all files reminds me of when I was a kid and we'd have these big family gatherings. "Where's everyone?" my aunt would ask.
+    /// We'd go around the house, counting heads, making sure no one was left out. "Johnny's in the basement!" someone would shout.
+    /// Collecting all the files is like that – scanning the directories, reading manifests, building the list. "Don't forget the parity ones!"
+    /// There was this one time at a reunion, we thought we lost cousin Tim, but he was just napping. Archives are like that too – all there, just need to find them.
+    /// Life's about gathering, whether people or data. From reunions to file lists.
     /// Retrieves a list of all files in the archive.
     ///
     /// This function scans all subdirectories in the archive, reads each `manifest.json`,
@@ -99,6 +110,11 @@ impl FileStore {
         Ok(file_list)
     }
 
+    /// All files, like when I was organizing my closet as a teenager. "Where are all my clothes?" I'd think.
+    /// I'd pull everything out, sort through piles, find the manifest of what I owned. "This shirt from camp, that one from grandma."
+    /// Getting all files is similar – read the directory, filter the entries, join with manifest.json. "Only the good ones!"
+    /// There was this time I found old comics I forgot about. Archives hold surprises too.
+    /// Organizing life's about discovery, from closets to code.
     pub fn all_files(&self) -> Result<Vec<PathBuf>, std::io::Error> {
         let all_dirs = fs::read_dir(&self.store_path)?;
         let manifests: Vec<PathBuf> = all_dirs
@@ -108,6 +124,11 @@ impl FileStore {
         Ok(manifests)
     }
 
+    /// Finding a file reminds me of losing my keys as an adult. "Where did I put them?" I'd panic.
+    /// I'd search the house, check pockets, retrace steps. "Ah, on the counter!" Relief.
+    /// Finding files is like that – get all files, loop through, match the name. "Found it!"
+    /// There was this time I searched for hours, only to find them in the fridge. Weird places.
+    /// Life's full of searches, from keys to data.
     /// Finds a specific file in the archive by its original filename.
     ///
     /// This function searches through all archived files and returns the first
@@ -153,6 +174,11 @@ impl FileStore {
         )))
     }
 
+    /// Segment reconstruct, like piecing together a jigsaw puzzle from my childhood. "Where does this piece go?" I'd wonder.
+    /// I'd sort the pieces, find edges, build the frame first. "The sky goes here!" 
+    /// Reconstructing segments is similar – get chunks, append them, write to file. "Complete!"
+    /// There was this puzzle of a castle, took me days, but the satisfaction. Files are like that too.
+    /// Life's about assembly, from puzzles to data.
     pub fn segment_reconstruct(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             "FILESTORE | reconstructing segmented file: {}",
@@ -183,6 +209,11 @@ impl FileStore {
         Ok(())
     }
 
+    /// Tiny reconstruct, like fixing a small toy car from when I was little. "The wheel fell off," I'd say.
+    /// I'd find the wheel, snap it back on, make sure it rolls. "Good as new!"
+    /// Reconstructing tiny files is like that – get segments, read them, write to file. "Done!"
+    /// There was this car that kept breaking, but I'd always fix it. Persistence pays off.
+    /// Life's about small repairs, from toys to files.
     pub fn tiny_reconstruct(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             "FILESTORE | reconstructing tiny file: {}",
@@ -208,6 +239,11 @@ impl FileStore {
         Ok(())
     }
 
+    /// Reconstruct, like choosing the right tool for the job from my dad's workshop. "Hammer or screwdriver?" he'd ask.
+    /// Depending on the size, I'd pick tiny or segment. "This one's big, need the big method!"
+    /// Reconstructing files is like that – check size, choose tier, call the right function. "Perfect fit!"
+    /// There was this time I used the wrong tool, made a mess. Learning from mistakes.
+    /// Life's about choices, from tools to code.
     pub fn reconstruct(&self, file_obj: &File) -> Result<(), Box<dyn std::error::Error>> {
         let tier: u8 = match file_obj.manifest.size {
             0..=10_000_000 => 1,
@@ -222,6 +258,11 @@ impl FileStore {
         Ok(())
     }
 
+    /// Get chunks paths, like gathering ingredients for a recipe from my mom's kitchen. "Need flour, eggs, sugar," she'd list.
+    /// I'd go to the pantry, find each item, collect them all. "Got them!"
+    /// Getting chunks is similar – get segments, loop through, build chunk paths. "All set!"
+    /// There was this recipe that needed 10 ingredients, took forever. But worth it.
+    /// Life's about gathering, from ingredients to paths.
     pub fn get_chunks_paths(
         &self,
         file_obj: &File,
@@ -242,6 +283,11 @@ impl FileStore {
         Ok(all_chunks)
     }
 
+    /// Get parity paths, like finding backup plans in life. "What if it rains?" I'd think for picnics.
+    /// I'd have umbrellas, indoor games ready. "Safety nets!"
+    /// Getting parity is like that – get segments, collect parity paths. "Redundancy!"
+    /// There was this picnic that got rained out, but we had fun inside. Always plan.
+    /// Life's about backups, from plans to data.
     pub fn get_parity_paths(
         &self,
         file_obj: &File,
@@ -260,6 +306,11 @@ impl FileStore {
         Ok(all_paraties)
     }
 
+    /// Get segments paths, like dividing a pizza into slices for sharing. "One for you, one for me," we'd say.
+    /// We'd cut it into pieces, distribute evenly. "Fair shares!"
+    /// Getting segments is like that – get file dir, read segments, collect paths. "Portions!"
+    /// There was this huge pizza, we divided it perfectly. Everyone happy.
+    /// Life's about division, from pizza to data.
     pub fn get_segments_paths(
         &self,
         file_obj: &File,
@@ -291,6 +342,11 @@ impl FileStore {
         Ok(segments_folder)
     }
 
+    /// Read segment, like reading a chapter in a book from my school days. "What's in this part?" I'd wonder.
+    /// I'd open the book, read the chunks, understand the story. "Plot twist!"
+    /// Reading segments is like that – get chunks and parity, read them in. "Data flows!"
+    /// There was this book with a cliffhanger chapter. Kept me up all night.
+    /// Life's about reading, from books to segments.
     pub fn read_segment(&self, path: PathBuf) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         // gather all the chunks from the path
         // and gather all of the
@@ -314,6 +370,11 @@ impl FileStore {
         Ok(combined)
     }
 
+    /// Segment hash, like fingerprinting for identification from spy movies. "Who's this guy?" the detective asks.
+    /// They'd take prints, run them through the system, get a match. "Gotcha!"
+    /// Hashing segments is like that – build Merkle tree, get root hash. "Unique ID!"
+    /// There was this movie where the fingerprint solved the case. Technology saves the day.
+    /// Life's about identification, from prints to hashes.
     pub fn segment_hash(
         &self,
         combined_data: Vec<Vec<u8>>,
@@ -322,6 +383,11 @@ impl FileStore {
         Ok(segment_tree.get_root()?.to_string())
     }
 
+    /// Get size, like weighing luggage for a trip. "How much does this bag weigh?" the attendant asks.
+    /// I'd put it on the scale, add up all items. "Over limit!"
+    /// Getting file size is like that – loop segments, sum chunk sizes. "Total bytes!"
+    /// There was this trip where I packed too much, had to pay extra. Lesson learned.
+    /// Life's about measurement, from bags to files.
     pub fn get_size(&self, file_obj: &File) -> Result<u64, Box<dyn std::error::Error>> {
         let mut file_size: u64 = 0;
         let segments = &self.get_segments_paths(file_obj)?;
@@ -331,9 +397,12 @@ impl FileStore {
                     .clone()
                     .join("chunks")
                     .join(format!("chunk_{:?}.dat", i));
-                println!("chunk_path: {:?}", chunk_path);
+                debug!("chunk_path: {:?}", chunk_path);
 
-                file_size += fs::File::open(chunk_path)?.metadata()?.len() as u64
+                let chunk_file = fs::File::open(chunk_path)?;
+                let chunk_metadata = chunk_file.metadata()?;
+                let chunk_len = chunk_metadata.len() as u64;
+                file_size += chunk_len;
             }
             for i in 0..3 {
                 let parity_path = segment
@@ -341,8 +410,11 @@ impl FileStore {
                     .join("parity")
                     .join(format!("parity_{:?}.dat", i));
 
-                println!("parity_path: {:?}", parity_path);
-                file_size += fs::File::open(parity_path)?.metadata()?.len() as u64
+                debug!("parity_path: {:?}", parity_path);
+                let parity_file = fs::File::open(parity_path)?;
+                let parity_metadata = parity_file.metadata()?;
+                let parity_len = parity_metadata.len() as u64;
+                file_size += parity_len;
             }
         }
 
@@ -361,6 +433,11 @@ impl FileStore {
         Ok(segment_tree.get_root()?.to_string())
     }
 
+    /// Get data path, like finding the address for a delivery. "Where does this go?" the driver asks.
+    /// I'd look up the address, get the directions. "Turn left here!"
+    /// Getting data path is like that – get parent dir, join data.dat. "Location found!"
+    /// There was this package that went to the wrong house. Confusion everywhere.
+    /// Life's about directions, from deliveries to paths.
     /// Get path to segment for Tier 1
     pub fn get_data_path(&self, file: &File) -> Result<PathBuf, std::io::Error> {
         let file_dir = Path::new(&file.file_data.path).parent().ok_or_else(|| {
@@ -372,6 +449,11 @@ impl FileStore {
         Ok(file_dir.join("data.dat"))
     }
 
+    /// Get segment path, like picking a specific book from the shelf. "Which volume?" the librarian asks.
+    /// I'd scan the shelf, find the number. "Volume 3!"
+    /// Getting segment path is like that – get parent, join segments, add segment_id. "Specific one!"
+    /// There was this library where books were misnumbered. Chaos.
+    /// Life's about specifics, from books to segments.
     /// Get path to block segment for Tier 3
     pub fn get_segment_path(
         &self,
@@ -389,6 +471,11 @@ impl FileStore {
             .join(format!("segment_{}.dat", segment_id)))
     }
 
+    /// Get block segment path, like navigating a maze with coordinates. "X marks the spot," the pirate says.
+    /// I'd use the map, find x and y. "Here it is!"
+    /// Getting block segment path is like that – get parent, join segments, add block and segment ids. "Precise location!"
+    /// There was this maze at the fair, got lost for hours. Finally found the center.
+    /// Life's about coordinates, from mazes to paths.
     /// Get path to segment for Tier 2
     pub fn get_block_segment_path(
         &self,
@@ -409,6 +496,11 @@ impl FileStore {
             .join(format!("segment_{}.dat", segment_id)))
     }
 
+    /// Get parity path t1, like finding the spare tire in the trunk. "Emergency backup," the manual says.
+    /// I'd open the trunk, locate the tire. "Safety first!"
+    /// Getting parity path t1 is like that – get parent, join parity, add index. "Backup ready!"
+    /// There was this flat tire on the highway, glad I had the spare. Saved the day.
+    /// Life's about backups, from tires to parity.
     /// Get path to parity file
     pub fn get_parity_path_t1(
         &self,
@@ -424,6 +516,11 @@ impl FileStore {
         Ok(file_dir.join(format!("parity_{}.dat", parity_id)))
     }
 
+    /// Get parity path t2, like having a second spare tire. "Double protection," the mechanic advises.
+    /// I'd check both tires, make sure they're good. "Redundant safety!"
+    /// Getting parity path t2 is like that – get parent, join parity with id. "Extra backup!"
+    /// There was this trip with two flats, second spare saved me. Better safe.
+    /// Life's about redundancy, from tires to parity.
     /// Get path to parity file
     pub fn get_parity_path_t2(
         &self,
@@ -442,6 +539,11 @@ impl FileStore {
             .join(format!("segment_{}_parity_{}.dat", segment_id, parity_id)))
     }
 
+    /// Get parity path t3, like having a whole set of spares in the garage. "Triple protection," the enthusiast says.
+    /// I'd organize them by block, keep them ready. "Ultimate safety!"
+    /// Getting parity path t3 is like that – get parent, join blocks, parity with ids. "Maximum backup!"
+    /// There was this long road trip, multiple spares gave peace of mind. Prepared for anything.
+    /// Life's about preparation, from spares to parity.
     /// Get path to parity file
     pub fn get_parity_path_t3(
         &self,
