@@ -487,7 +487,7 @@ BlockFrame is organized into focused modules. Each contains its own README with 
 
 **`filestore/`** - Archive operations. Manifest scanning, file location, repair and reconstruction workflows. See [filestore/README.md](src/filestore/README.md) for batch health checking and recovery strategies.
 
-**`mount/`** - Filesystem implementations (FUSE and WinFSP). Transparent access with on-the-fly recovery. See [mount/README.md](src/mount/README.md) for cache architecture, concurrency patterns, and platform-specific considerations.
+**`mount/`** - Filesystem implementations (FUSE and WinFSP). Transparent access with on-the-fly recovery. See [mount/README.md](src/mount/readme.md) for cache architecture, concurrency patterns, and platform-specific considerations.
 
 **`merkle_tree/`** - Hash tree construction and verification. Provides cryptographic integrity proofs.
 
@@ -509,7 +509,7 @@ Memory-mapped I/O: Files are memory-mapped for zero-copy reads. RAM usage remain
 
 BLAKE3: Used for all hashing (the `blake3_hash_bytes` function name is historical). Faster than SHA-256 with better parallelization. Cryptographically secure.
 
-Cache: Mounted filesystems use moka's W-TinyLFU for segment caching. Frequency-based eviction prevents cache pollution from sequential scans. See [mount/README.md](src/mount/README.md) for detailed cache analysis.
+Cache: Mounted filesystems use moka's W-TinyLFU for segment caching. Frequency-based eviction prevents cache pollution from sequential scans. See [mount/README.md](src/mount/readme.md) for detailed cache analysis.
 
 Concurrency: FUSE allows serialized access (`&mut self`). WinFSP requires shared access (`&self`) due to Windows I/O threading model. Both implementations are thread-safe through different mechanisms.
 
@@ -567,7 +567,7 @@ MIT
 
 For detailed technical explanations, architectural decisions, and implementation rationale, see module-specific READMEs:
 
-- [Cache architecture and W-TinyLFU analysis](src/mount/README.md)
+- [Cache architecture and W-TinyLFU analysis](src/mount/readme.md)
 - [Tier selection and encoding strategies](src/chunker/README.md)
 - [Batch health checking and repair workflows](src/filestore/README.md)
 - [Merkle tree verification](src/merkle_tree/README.md)
