@@ -11,14 +11,14 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "CompanyName", "Rohaan Ahmed"
+      VALUE "CompanyName", "Ronny (2Fresh)"
       VALUE "FileDescription", "Self-healing erasure-coded storage engine with transparent filesystem mounting"
-      VALUE "FileVersion", "1.0.0.0"
-      VALUE "InternalName", "blockframe"
+      VALUE "FileVersion", "1.0.5"
+      VALUE "InternalName", "BlockFrame"
       VALUE "LegalCopyright", "Copyright © 2026"
       VALUE "OriginalFilename", "blockframe.exe"
       VALUE "ProductName", "BlockFrame"
-      VALUE "ProductVersion", "1.0.0.0"
+      VALUE "ProductVersion", "1.0.5"
     END
   END
   BLOCK "VarFileInfo"

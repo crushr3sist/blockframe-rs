@@ -32,6 +32,11 @@ cargo test
 
 ## Guidelines
 
+**AI Usage**:
+
+- There is a strict no vibe-code PRs.
+- All generated PRs will be rejected automatically.
+
 **Code:**
 
 - Follow existing code style and patterns
@@ -67,4 +72,4 @@ Open an issue for discussion before starting major refactoring or new features. 
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the Apache-2.0 License.

@@ -1,3 +1,6 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::{merkle_tree::node::Node, utils::blake3_hash_bytes};
 use serde_json::{self, Value, json};
 

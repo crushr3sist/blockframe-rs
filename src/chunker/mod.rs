@@ -1,3 +1,6 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
 //!
 //! This module provides functionality to split files into chunks, generate parity data
 //! for error correction, and reconstruct missing chunks using Reed-Solomon erasure coding.

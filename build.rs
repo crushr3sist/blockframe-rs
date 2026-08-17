@@ -1,3 +1,5 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
 // Build script to copy WinFSP DLL to output directory
 use std::env;
 use std::fs;

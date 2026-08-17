@@ -1,4 +1,7 @@
-use crate::filestore::FileStore;
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
+crate::filestore::FileStore;
 use crate::merkle_tree::manifest::ManifestFile;
 use serde::{Deserialize, Serialize};
 use std::fs;

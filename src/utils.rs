@@ -1,3 +1,6 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
 use blake3::Hasher;
 use std::{fs::File, io, path::Path};
 use sysinfo::System;

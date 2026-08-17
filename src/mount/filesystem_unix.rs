@@ -1,3 +1,6 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
 use super::cache::SegmentCache;
 use super::source::SegmentSource;
 use fuser::{

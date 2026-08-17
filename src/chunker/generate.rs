@@ -1,3 +1,6 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
 use super::Chunker;
 
 use reed_solomon_simd::ReedSolomonEncoder;

@@ -1,3 +1,6 @@
+// Copyright © 2026 Ronny (2Fresh)
+// SPDX-License-Identifier: Apache-2.0
+
 /// Segment-level Reed-Solomon recovery utilities.
 ///
 /// This module provides low-level recovery functions that can be used by both
